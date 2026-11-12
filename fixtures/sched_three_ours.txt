@@ -1,0 +1,5 @@
+Scheduled power events:
+ [0]  wake at 11/12/2026 15:38:29 by 'com.apple.alarm.user-invisible-com.apple.acmd.alarm'
+ [1]  wake at 11/12/2026 16:05:00 by 'hermes-wakeprobe'
+ [2]  wake at 11/12/2026 16:15:00 by 'hermes-wakeprobe'
+ [3]  wake at 11/12/2026 16:25:00 by 'hermes-wakeprobe'
