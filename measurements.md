@@ -68,6 +68,14 @@ After a timer wake the screen goes dark again within ~12 s (`Display is turned o
 sleep only — the system stays awake and keeps serving. Never judge "did it sleep?" by the screen; judge
 it by `pmset -g log | grep "Entering Sleep state"`.
 
+## C — does launchd actually restart a dead gateway?
+
+**PASS** (crash test run by the user from a shell outside the gateway):
+
+- `pkill -9 -f "gateway run --external-supervisor"` → after ~35 s launchd spawned a new gateway.
+- `runs` went 33 → 34, PID 34632 → 35216, status still "supervised by launchd".
+- `KeepAlive = { SuccessfulExit = false }`, `ThrottleInterval = 30`, `ExitTimeOut = 60`.
+
 ## Known leftovers
 
 - `sudo pmset sleepnow` from a detached child of `do shell script ... with administrator privileges` does
