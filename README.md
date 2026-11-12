@@ -96,6 +96,52 @@ launchctl print gui/$(id -u)/ai.hermes.gateway | grep -E "state =|pid =|runs ="
 `KeepAlive = { SuccessfulExit = false }`: падение по сигналу перезапускается, сознательный
 `hermes gateway stop` — нет. Так и задумано.
 
+## Уведомления в Telegram при отключении и возврате питания
+
+Отдельный пользовательский агент `local.mac-wakeup.notify` раз в 5 секунд смотрит
+`pmset -g batt` и при смене источника питания отправляет сообщение в Telegram через
+`hermes send` (тот же бот, что и gateway; агент-цикл не нужен).
+
+- Установленный скрипт: `~/.local/bin/power-notify.sh` (копия из репозитория — launchd не может
+  читать `~/Documents` из-за TCC)
+- Лог: `~/Library/Logs/mac-wakeup-notify.log`, stderr: `~/Library/Logs/mac-wakeup-notify.err`
+- Текущее состояние в кэше: `~/.local/state/mac-wakeup/power-state` (`AC` / `BATT`)
+- Неотправленные сообщения: `~/.local/state/mac-wakeup/outbox.txt`
+- Тесты: `./test_notify.sh` (11 проверок логики переходов и текста)
+
+Логика: первое показание только запоминается (никакого спама при логине), переход
+подтверждается двумя согласными замерами подряд (защита от дребезга разъёма), затем сообщение
+кладётся в outbox и отправляется. **Если отправка не удалась — сообщение остаётся в очереди и
+повторяется каждые 30 секунд**, пока не уйдёт: при настоящем отключении света роутер тоже
+выключен, поэтому «питание отключено» придёт тогда, когда сеть вернётся, а следом — «питание
+восстановлено», в правильном порядке.
+
+Проверить:
+
+```bash
+launchctl print gui/$(id -u)/local.mac-wakeup.notify | grep -E "state =|pid ="
+tail -5 ~/Library/Logs/mac-wakeup-notify.log
+cat ~/.local/state/mac-wakeup/power-state
+cat ~/.local/state/mac-wakeup/outbox.txt     # пусто = всё доставлено
+```
+
+Выключить / включить:
+
+```bash
+launchctl bootout gui/$(id -u)/local.mac-wakeup.notify
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.mac-wakeup.notify.plist
+```
+
+Переустановить после правок `power-notify.sh` (сам прогонит тесты и перерегистрирует агент):
+
+```bash
+~/Documents/mac-wakeup/install-notify.sh
+```
+
+Сменить чат/интервал — `POWERNOTIFY_TARGET` и `POWERNOTIFY_INTERVAL` в
+`~/Library/LaunchAgents/local.mac-wakeup.notify.plist`, затем `install-notify.sh` заново.
+Список доступных целей: `hermes send --list telegram`.
+
 ## Переустановка демона после правок `wakeprobe.sh`
 
 ```bash
