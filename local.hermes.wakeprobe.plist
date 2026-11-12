@@ -11,7 +11,7 @@
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>WAKEPROBE_STEP_MIN</key><string>10</string>
+    <key>WAKEPROBE_STEP_MIN</key><string>12</string>
     <key>WAKEPROBE_WANT</key><string>3</string>
   </dict>
   <key>RunAtLoad</key>
