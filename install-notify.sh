@@ -29,7 +29,7 @@ cat >"$PLIST" <<PLIST_EOF
   <key>EnvironmentVariables</key>
   <dict>
     <key>POWERNOTIFY_TARGET</key><string>telegram:ЧИСЛО</string>
-    <key>POWERNOTIFY_INTERVAL</key><string>5</string>
+    <key>POWERNOTIFY_INTERVAL</key><string>30</string>
     <key>POWERNOTIFY_DEBOUNCE</key><string>2</string>
   </dict>
   <key>RunAtLoad</key>

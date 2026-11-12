@@ -17,9 +17,8 @@ STATE_DIR="${POWERNOTIFY_STATE_DIR:-$HOME/.local/state/mac-wakeup}"
 STATE_FILE="$STATE_DIR/power-state"
 OUTBOX="$STATE_DIR/outbox.txt"
 LOG="${POWERNOTIFY_LOG:-$HOME/Library/Logs/mac-wakeup-notify.log}"
-INTERVAL="${POWERNOTIFY_INTERVAL:-5}"
+INTERVAL="${POWERNOTIFY_INTERVAL:-30}"
 DEBOUNCE="${POWERNOTIFY_DEBOUNCE:-2}"          # consecutive agreeing readings
-FLUSH_EVERY="${POWERNOTIFY_FLUSH_EVERY:-30}"   # min seconds between retry attempts
 DRY="${POWERNOTIFY_DRY:-0}"
 
 decide() { # last now streak debounce -> send=offline | send=online | noop
@@ -43,9 +42,22 @@ compose() { # state pct
   esac
 }
 
+backoff() { # attempt -> seconds to wait before the next send attempt
+  case "${1:-1}" in
+    1) echo 30 ;;
+    2) echo 60 ;;
+    3) echo 180 ;;
+    4) echo 300 ;;
+    *) echo 600 ;;
+  esac
+}
+
 case "${1:-}" in
   --decide)  decide "${2:-}" "${3:-}" "${4:-0}" "${5:-2}"; exit 0 ;;
   --compose) compose "${2:?state}" "${3:-}"; exit 0 ;;
+  --backoff) backoff "${2:-1}"; exit 0 ;;
+  "")        : ;;   # no args: run the daemon loop
+  *)         echo "usage: $0 [--decide last now streak debounce | --compose state pct | --backoff attempt]" >&2; exit 2 ;;
 esac
 
 # ---- runtime ----
@@ -65,6 +77,7 @@ send() { # $1 = message
 enqueue() { printf '%s\n' "$1" >>"$OUTBOX"; }
 
 NEXT_FLUSH=0
+ATTEMPTS=0
 flush() { # $1 = now (epoch)
   [ -s "$OUTBOX" ] || return 0
   [ "$1" -ge "$NEXT_FLUSH" ] || return 0
@@ -78,11 +91,17 @@ flush() { # $1 = now (epoch)
     if send "$line"; then log "sent: $line"; else
       blocked=1
       printf '%s\n' "$line" >>"$OUTBOX"
-      log "send failed, will retry: $line"
     fi
   done <"$queue"
   rm -f "$queue"
-  if [ "$blocked" = 1 ]; then NEXT_FLUSH=$(( $1 + FLUSH_EVERY )); fi
+  if [ "$blocked" = 1 ]; then
+    # Every failed attempt is a whole Python process — back off instead of hammering.
+    ATTEMPTS=$((ATTEMPTS + 1))
+    NEXT_FLUSH=$(( $1 + $(backoff "$ATTEMPTS") ))
+    log "send failed (attempt $ATTEMPTS), next try in $(backoff "$ATTEMPTS")s"
+  else
+    ATTEMPTS=0
+  fi
 }
 
 last="$(cat "$STATE_FILE" 2>/dev/null || true)"

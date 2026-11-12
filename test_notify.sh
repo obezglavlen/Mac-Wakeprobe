@@ -46,5 +46,25 @@ compose_has BATT 83 отключено
 compose_has BATT 83 83%
 compose_has AC 91 восстановлено
 
-total=11
+# Retry backoff after a failed send: a failed `hermes send` spawns a whole Python
+# process, so retrying every tick on battery is wasteful. Doubling-ish ladder, capped.
+backoff_is() { # attempt want_seconds
+  local got
+  got="$("$SCRIPT" --backoff "$1" 2>&1)"
+  if [ "$got" = "$2" ]; then
+    echo "ok   backoff($1) -> ${got}s"
+  else
+    echo "FAIL backoff($1) -> '$got', want '$2'"
+    fails=$((fails+1))
+  fi
+}
+
+backoff_is 1 30
+backoff_is 2 60
+backoff_is 3 180
+backoff_is 4 300
+backoff_is 5 600
+backoff_is 9 600
+
+total=17
 if [ "$fails" -eq 0 ]; then echo "PASS ($total/$total)"; exit 0; else echo "FAILED: $fails"; exit 1; fi
