@@ -42,11 +42,20 @@ sudo tail -5 /var/log/hermes-wakeprobe.log                               # ти�
 
 ```bash
 sudo launchctl bootout system/local.hermes.wakeprobe
-for d in $(pmset -g sched | sed -nE "s/.*wake at ([0-9]{2}\/[0-9]{2}\/[0-9]{2} [0-9:]{8}) by 'hermes-wakeprobe'.*/\1/p"); do
-  sudo pmset schedule cancel wake "$d" hermes-wakeprobe
+pmset -g sched | sed -nE "s/.*wake at ([0-9]{2}\/[0-9]{2}\/[0-9]{2,4} [0-9:]{8}) by 'hermes-wakeprobe'.*/\1/p" |
+while IFS= read -r d; do
+  cts=$(date -j -f "%m/%d/%Y %H:%M:%S" "$d" '+%m/%d/%y %H:%M:%S' 2>/dev/null) || cts="$d"
+  sudo pmset schedule cancel wake "$cts" hermes-wakeprobe
 done
 pmset -g sched | grep -c hermes-wakeprobe    # ожидаем 0
 ```
+
+Два подвоха, на которых легко обжечься:
+
+- `pmset -g sched` печатает год **четырёхзначным**, а `pmset schedule cancel` четырёхзначный
+  отвергает («Badly formatted date»). Нужен двузначный — отсюда `date -j -f` в примере.
+- `for d in $(...)` разбивает «11/12/2026 16:59:27» по пробелу, и все cancel'ы падают.
+  Только `while IFS= read -r d`.
 
 После перезагрузки демон поднимется снова (plist остался на месте).
 
@@ -120,8 +129,10 @@ launchd».
 sudo launchctl bootout system/local.hermes.wakeprobe
 sudo launchctl disable system/local.hermes.wakeprobe
 sudo rm /Library/LaunchDaemons/local.hermes.wakeprobe.plist /usr/local/bin/hermes-wakeprobe.sh
-for d in $(pmset -g sched | sed -nE "s/.*wake at ([0-9]{2}\/[0-9]{2}\/[0-9]{2} [0-9:]{8}) by 'hermes-wakeprobe'.*/\1/p"); do
-  sudo pmset schedule cancel wake "$d" hermes-wakeprobe
+pmset -g sched | sed -nE "s/.*wake at ([0-9]{2}\/[0-9]{2}\/[0-9]{2,4} [0-9:]{8}) by 'hermes-wakeprobe'.*/\1/p" |
+while IFS= read -r d; do
+  cts=$(date -j -f "%m/%d/%Y %H:%M:%S" "$d" '+%m/%d/%y %H:%M:%S' 2>/dev/null) || cts="$d"
+  sudo pmset schedule cancel wake "$cts" hermes-wakeprobe
 done
 ```
 

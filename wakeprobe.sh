@@ -49,7 +49,10 @@ plan() { # $1 = file containing `pmset -g sched` output
     if [ "$ep" -gt "$((now + GRACE))" ]; then
       future=$((future + 1))
     else
-      printf '%s schedule cancel wake "%s" %s\n' "$PMSET" "$ts" "$LABEL"
+      # `pmset schedule cancel` rejects the four-digit year that `pmset -g sched`
+      # prints ("Badly formatted date"), so hand it the two-digit form it arms with.
+      cts="$("$DATE" -j -f "%m/%d/%Y %H:%M:%S" "$ts" '+%m/%d/%y %H:%M:%S' 2>/dev/null || echo "$ts")"
+      printf '%s schedule cancel wake "%s" %s\n' "$PMSET" "$cts" "$LABEL"
     fi
   done <<<"$sched"
 

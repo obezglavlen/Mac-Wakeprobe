@@ -45,12 +45,15 @@ times="$(printf '%s\n' "$out" | sed -E 's/.*wake "([^"]+)".*/\1/' | sort -u | wc
 if [ "$times" -eq 3 ]; then echo "ok   three distinct wake times"; else
   echo "FAIL distinct wake times = $times, want 3"; fails=$((fails+1)); fi
 
-# A stale event must be cancelled with its own original timestamp, not with "now".
+# A stale event must be cancelled with its own original timestamp, not with "now",
+# and in the two-digit-year form `pmset schedule cancel` actually accepts
+# (it rejects the four-digit form `pmset -g sched` prints with "Badly formatted date").
 out="$("$SCRIPT" --plan "$HERE/fixtures/sched_stale.txt")"
-if printf '%s\n' "$out" | grep -q 'schedule cancel wake "01/01/2020 10:10:00" hermes-wakeprobe'; then
-  echo "ok   stale event cancelled with its original timestamp"
+if printf '%s\n' "$out" | grep -q 'schedule cancel wake "01/01/20 10:10:00" hermes-wakeprobe'; then
+  echo "ok   stale event cancelled with its original timestamp, two-digit year"
 else
-  echo "FAIL stale cancel does not carry the original timestamp"; fails=$((fails+1))
+  echo "FAIL stale cancel: wrong timestamp or wrong year format"
+  printf '%s\n' "$out" | sed 's/^/     | /'; fails=$((fails+1))
 fi
 
 if [ "$fails" -eq 0 ]; then echo "PASS (10/10)"; exit 0; else echo "FAILED: $fails"; exit 1; fi
