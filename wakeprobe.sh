@@ -20,8 +20,13 @@ LOG="${WAKEPROBE_LOG:-/var/log/hermes-wakeprobe.log}"
 
 count_ours() { grep -c "by '$LABEL'" || true; }
 
-# "11/12/26 16:08:46" -> epoch seconds (BSD date -j)
-to_epoch() { "$DATE" -j -f "%m/%d/%y %H:%M:%S" "$1" +%s 2>/dev/null; }
+# "11/12/2026 16:08:46" or "11/12/26 16:08:46" -> epoch seconds (BSD date -j).
+# `pmset -g sched` prints a FOUR-digit year; older fixtures use two. Accept both,
+# otherwise every event looks unparsable and the daemon arms three more each tick.
+to_epoch() {
+  "$DATE" -j -f "%m/%d/%Y %H:%M:%S" "$1" +%s 2>/dev/null ||
+    "$DATE" -j -f "%m/%d/%y %H:%M:%S" "$1" +%s 2>/dev/null
+}
 
 plan() { # $1 = file containing `pmset -g sched` output
   local sched line ts ep now future i off
@@ -36,7 +41,7 @@ plan() { # $1 = file containing `pmset -g sched` output
       *"by '$LABEL'"*) ;;
       *) continue ;;
     esac
-    ts="$(printf '%s\n' "$line" | sed -E 's/.*wake at ([0-9][0-9]\/[0-9][0-9]\/[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9]).*/\1/')"
+    ts="$(printf '%s\n' "$line" | sed -E 's/.*wake at ([0-9]{1,2}\/[0-9]{1,2}\/[0-9]{2,4} [0-9]{2}:[0-9]{2}:[0-9]{2}).*/\1/')"
     ep="$(to_epoch "$ts")"
     if [ -z "${ep:-}" ]; then
       continue                      # unparsable: leave it alone rather than cancel blind

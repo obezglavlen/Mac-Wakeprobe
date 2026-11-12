@@ -47,7 +47,7 @@ if [ "$times" -eq 3 ]; then echo "ok   three distinct wake times"; else
 
 # A stale event must be cancelled with its own original timestamp, not with "now".
 out="$("$SCRIPT" --plan "$HERE/fixtures/sched_stale.txt")"
-if printf '%s\n' "$out" | grep -q 'schedule cancel wake "01/01/20 10:10:00" hermes-wakeprobe'; then
+if printf '%s\n' "$out" | grep -q 'schedule cancel wake "01/01/2020 10:10:00" hermes-wakeprobe'; then
   echo "ok   stale event cancelled with its original timestamp"
 else
   echo "FAIL stale cancel does not carry the original timestamp"; fails=$((fails+1))
