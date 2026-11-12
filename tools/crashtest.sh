@@ -1,7 +1,7 @@
 #!/bin/sh
 # Crash test: kill the gateway process tree and verify launchd's KeepAlive brings it back.
 # Submitted via `launchctl submit` so it is not a child of the gateway it kills.
-LOG="/Users/mykyta/.hermes/wakeprobe/crashtest.log"
+LOG="/Users/mykyta/Documents/mac-wakeup/crashtest.log"
 HERMES="/Users/mykyta/.hermes/hermes-agent/.hermes/bin/hermes"
 DOM="gui/$(id -u)/ai.hermes.gateway"
 

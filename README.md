@@ -1,36 +1,104 @@
-# hermes-wakeprobe
+# mac-wakeup — мак просыпается сам, когда возвращается электричество
 
-Keeps N probe wake events queued so the Mac wakes at least every 10 minutes while asleep.
-Vorssaint (`com.vorssaint.utils`, `keepAwakeConnectedToPower = true`) holds the machine awake
-once AC is back. No caffeinate involved — Vorssaint is the keep-awake half, this daemon is the
-wake half.
+Проект каталога: `~/Documents/mac-wakeup` (git). Скрипт демона лежит в git, но **работает не он**:
+launchd запускает установленную копию `/usr/local/bin/hermes-wakeprobe.sh`, поэтому перенос каталога
+ничего не ломает.
 
-- Gateway service label: `ai.hermes.gateway` (LaunchAgent, installed via `hermes gateway install`)
-- Wake daemon label: `local.hermes.wakeprobe` (root LaunchDaemon)
-- Log: `/var/log/hermes-wakeprobe.log` (root), stderr: `/var/log/hermes-wakeprobe.err`
-- Tune: `WAKEPROBE_STEP_MIN` / `WAKEPROBE_WANT` in `/Library/LaunchDaemons/local.hermes.wakeprobe.plist`
-- Tests: `./test_plan.sh` (fixtures in `./fixtures`)
+## Как устроено
 
-## Reinstall after editing wakeprobe.sh
+Wake-on-charger на Apple Silicon не существует (`pmset -g cap` не содержит `acwake`/`autorestart`),
+поэтому схема собрана из двух половин:
+
+1. **Разбудить** — root-демон `local.hermes.wakeprobe` держит в очереди 3 события
+   `pmset schedule wake` с меткой `hermes-wakeprobe` (примерно +10/+20/+30 минут) и каждую минуту
+   докидывает недостающие. Спящий мак просыпается на ближайшем событии — максимум через 10 минут.
+2. **Удержать** — приложение **Vorssaint** (`com.vorssaint.utils`) с настройкой
+   `keepAwakeConnectedToPower = true` держит `PreventUserIdleSystemSleep`, пока подключено питание.
+   Как только проба разбудила мак с уже подключённой зарядкой, Vorssaint оставляет его включённым.
+
+`caffeinate` в схеме не участвует. Gateway Hermes живёт отдельно: `ai.hermes.gateway`
+(LaunchAgent с `KeepAlive`), сон его не убивает, падение — перезапускает launchd за ~35 с.
+
+Проверки и замеры: `measurements.md`. Тесты планировщика: `./test_plan.sh`.
+
+| Что | Где |
+|---|---|
+| Демон пробуждений | `/Library/LaunchDaemons/local.hermes.wakeprobe.plist` → `/usr/local/bin/hermes-wakeprobe.sh` |
+| Лог демона | `/var/log/hermes-wakeprobe.log` (+ `.err`) |
+| Настройки | `WAKEPROBE_STEP_MIN` (интервал, мин), `WAKEPROBE_WANT` (сколько событий держать) в plist |
+| Gateway | `~/Library/LaunchAgents/ai.hermes.gateway.plist` |
+
+## Управление: выключить / включить
+
+### Проверить, что работает
 
 ```bash
-sudo install -o root -g wheel -m 755 ~/.hermes/wakeprobe/wakeprobe.sh /usr/local/bin/hermes-wakeprobe.sh
+launchctl print system/local.hermes.wakeprobe | grep -E "state =|pid ="   # state = running
+pmset -g sched | grep -c "hermes-wakeprobe"                              # 3
+sudo tail -5 /var/log/hermes-wakeprobe.log                               # тикает раз в минуту
+```
+
+### Выключить (временно, до перезагрузки)
+
+```bash
+sudo launchctl bootout system/local.hermes.wakeprobe
+for d in $(pmset -g sched | sed -nE "s/.*wake at ([0-9]{2}\/[0-9]{2}\/[0-9]{2} [0-9:]{8}) by 'hermes-wakeprobe'.*/\1/p"); do
+  sudo pmset schedule cancel wake "$d" hermes-wakeprobe
+done
+pmset -g sched | grep -c hermes-wakeprobe    # ожидаем 0
+```
+
+После перезагрузки демон поднимется снова (plist остался на месте).
+
+### Выключить насовсем (переживает перезагрузку)
+
+```bash
+sudo launchctl bootout system/local.hermes.wakeprobe
+sudo launchctl disable system/local.hermes.wakeprobe
+```
+
+### Включить обратно
+
+```bash
+sudo launchctl enable system/local.hermes.wakeprobe
+sudo launchctl bootstrap system /Library/LaunchDaemons/local.hermes.wakeprobe.plist
+sleep 6
+launchctl print system/local.hermes.wakeprobe | grep -E "state =|pid ="   # state = running
+pmset -g sched | grep -c "hermes-wakeprobe"                              # 3
+```
+
+`bootstrap` идемпотентным не бывает: если ругается «service already loaded», сначала `bootout`.
+
+### Приостановить «по-тихому», ничего не снимая
+
+Просто отключи зарядку — мак уснёт сам через минуту (Vorssaint отпускает на батарее), а пробуждения
+продолжат его будить раз в 10 минут. Если нужно, чтобы он спал и **не** просыпался — только `bootout`
+из предыдущего раздела.
+
+### Сам gateway (отдельная история)
+
+```bash
+hermes gateway status     # «supervised by launchd» = всё хорошо
+hermes gateway stop       # чистый exit 0 → launchd его НЕ поднимет
+hermes gateway start      # поднять обратно
+launchctl print gui/$(id -u)/ai.hermes.gateway | grep -E "state =|pid =|runs ="
+```
+
+`KeepAlive = { SuccessfulExit = false }`: падение по сигналу перезапускается, сознательный
+`hermes gateway stop` — нет. Так и задумано.
+
+## Переустановка демона после правок `wakeprobe.sh`
+
+```bash
+cd ~/Documents/mac-wakeup && ./test_plan.sh          # сначала тесты: PASS (6/6)
+sudo install -o root -g wheel -m 755 wakeprobe.sh /usr/local/bin/hermes-wakeprobe.sh
 sudo launchctl kickstart -k system/local.hermes.wakeprobe
 ```
 
-## Status
+## Краштест gateway (только из отдельного окна Terminal)
 
-```bash
-launchctl print system/local.hermes.wakeprobe | grep -E "state =|pid ="
-pmset -g sched | grep -c "hermes-wakeprobe"     # expect 3
-sudo tail -5 /var/log/hermes-wakeprobe.log
-```
-
-## Crash test (run from a shell OUTSIDE the gateway)
-
-The gateway's chat session lives inside the gateway process, so this must be a separate Terminal
-window. `KeepAlive` is `{ SuccessfulExit = false }`: any signal/crash death relaunches, a clean
-`exit 0` stop does not. `ThrottleInterval` is 30 s, so expect ~30–40 s of downtime.
+Сессия чата живёт внутри процесса gateway, поэтому убивать его из чата бессмысленно — команда умрёт
+вместе с ним. `ThrottleInterval = 30`, так что простой ~30–40 секунд.
 
 ```bash
 pkill -9 -f "gateway run --external-supervisor"; sleep 40
@@ -38,26 +106,27 @@ launchctl print gui/$(id -u)/ai.hermes.gateway | grep -E "state =|pid =|runs ="
 hermes gateway status | head -4
 ```
 
-Pass: `state = running`, a **new** pid, `runs` incremented by one, and status still says
-"supervised by launchd".
+Прошло, если `state = running`, PID новый, `runs` вырос на единицу, статус всё ещё «supervised by
+launchd».
 
-## Rollback
+## Полный откат
 
 ```bash
-sudo launchctl bootout system /Library/LaunchDaemons/local.hermes.wakeprobe.plist
+sudo launchctl bootout system/local.hermes.wakeprobe
+sudo launchctl disable system/local.hermes.wakeprobe
 sudo rm /Library/LaunchDaemons/local.hermes.wakeprobe.plist /usr/local/bin/hermes-wakeprobe.sh
 for d in $(pmset -g sched | sed -nE "s/.*wake at ([0-9]{2}\/[0-9]{2}\/[0-9]{2} [0-9:]{8}) by 'hermes-wakeprobe'.*/\1/p"); do
   sudo pmset schedule cancel wake "$d" hermes-wakeprobe
 done
 ```
 
-**Never** run `sudo pmset schedule cancelall` — it deletes Apple's own alarms.
+**Никогда** не запускай `sudo pmset schedule cancelall` — он сносит и системные будильники Apple.
 
-## Known limits
+## Известные ограничения
 
-- No wake-on-charger on this hardware (`pmset -g cap` has no `acwake`/`autorestart`). Recovery
-  latency = the probe interval (10 min by default).
-- A fully drained battery is unrecoverable remotely: a MacBook at 0% does not boot when power
-  returns.
-- FileVault is On: after a *reboot* nothing starts until someone logs in, so the design goal is
-  "never let it shut down", not "restart after reboot".
+- Wake-on-charger на этом железе нет: задержка восстановления = интервал проб (по умолчанию 10 мин).
+- Полностью севшая батарея не восстанавливается удалённо — ноутбук с 0% сам не включается при
+  возврате питания (`autorestart` у ноутбуков Apple нет).
+- FileVault включён: после *перезагрузки* ничего не стартует до входа в систему. Отсюда и стратегия
+  «не дать выключиться», а не «поднять после ребута».
+- Пробуждения расходуют батарею; порог заряда самого Vorssaint — `batteryLimitPercent = 10`.

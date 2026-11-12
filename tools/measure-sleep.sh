@@ -1,6 +1,6 @@
 #!/bin/sh
 # Measurement A: prove that a scheduled wake fires, and see whether it is a
-# full Wake or a DarkWake. Must be run as root:  sudo ~/.hermes/wakeprobe/tools/measure-sleep.sh
+# full Wake or a DarkWake. Must be run as root:  sudo ~/Documents/mac-wakeup/tools/measure-sleep.sh
 set -u
 LABEL="hermes-test"
 echo "[1/3] cancelling any stale $LABEL events"
