@@ -11,7 +11,7 @@
 set -uo pipefail
 
 PMSET="${POWERNOTIFY_PMSET:-/usr/bin/pmset}"
-HERMES="${POWERNOTIFY_HERMES:-/Users/mykyta/.hermes/hermes-agent/.hermes/bin/hermes}"
+HERMES="${POWERNOTIFY_HERMES:-$(command -v hermes 2>/dev/null || echo "$HOME/.hermes/hermes-agent/.hermes/bin/hermes")}"
 TARGET="${POWERNOTIFY_TARGET:-telegram:ЧИСЛО}"
 STATE_DIR="${POWERNOTIFY_STATE_DIR:-$HOME/.local/state/mac-wakeup}"
 STATE_FILE="$STATE_DIR/power-state"

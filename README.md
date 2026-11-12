@@ -4,6 +4,78 @@
 launchd запускает установленную копию `/usr/local/bin/hermes-wakeprobe.sh`, поэтому перенос каталога
 ничего не ломает.
 
+## Быстрый старт на новом маке (5 минут)
+
+Предполагается: macOS, установленный Hermes с настроенным Telegram-ботом, интернет.
+Заодно ставится приложение-держатель (см. шаг 9) — без него схема не имеет смысла.
+
+```bash
+# 1. Убедиться, что железо вообще не умеет wake-on-charger (ожидаем 0)
+pmset -g cap | tr ' ' '\n' | grep -c acwake
+
+# 2. Gateway должен быть сервисом, а не ручным процессом
+hermes gateway status
+hermes gateway install            # только если в статусе «Running manually»
+
+# 3. Узнать chat id для уведомлений (формат telegram:ЧИСЛО)
+hermes send --list telegram
+
+# 4. Забрать проект
+git clone <URL-репозитория> ~/Documents/mac-wakeup   # или просто скопировать папку
+cd ~/Documents/mac-wakeup
+
+# 5. Тесты до установки: должно быть PASS (10/10) и PASS (17/17)
+./test_plan.sh && ./test_notify.sh
+
+# 6. Демон пробуждения (спросит пароль один раз; TCC обходится через /tmp сам)
+./install-wakeprobe.sh
+#    ждём: state = running, pid = ..., queued ours: 3 (expect 3)
+
+# 7. Уведомлятор в Telegram (подставь свой chat id из шага 3)
+POWERNOTIFY_TARGET=telegram:123456789 ./install-notify.sh
+#    ждём: PASS (17/17), «installed», state = running
+
+# 8. Проверки: сообщение доходит и переходы ловятся
+hermes send --to telegram:123456789 "проверка связи"
+#    затем отключи зарядку на 30 секунд и подключи обратно — придёт два сообщения
+tail -5 ~/Library/Logs/mac-wakeup-notify.log
+pmset -g sched | grep -c hermes-wakeprobe     # 3
+```
+
+```bash
+# 9. Держатель «пока подключено питание» — обязательно, иначе после пробуждения
+#    мак снова уснёт через минуту. Варианты:
+#    Vorssaint → Preferences → keep awake при keepAwakeConnectedToPower = true
+#    Amphetamine → «Allow system to sleep… off, while plugged in»
+#    или свой caffeinate-демон (см. раздел «Стоимость для батареи»)
+```
+
+Готово. Проверить всё разом: `./tools/report.sh` (для демона) и лог уведомлятора.
+
+Если что-то не сошлось — почти всегда одна из трёх причин: файл не в `/tmp` (TCC),
+`pmset`-события старые (почисти: раздел «Выключить»), или chat id в plist не тот.
+
+## Что где конфигурируется
+
+Отдельного конфиг-файла нет: скрипты читают переменные окружения, а их задаёт plist
+соответствующего агента. Меняешь plist → переустанавливаешь (`install-*.sh`).
+
+| Параметр | Где | По умолчанию |
+|---|---|---|
+| Интервал проб пробуждения | `/Library/LaunchDaemons/local.hermes.wakeprobe.plist` → `WAKEPROBE_STEP_MIN` | 12 мин |
+| Сколько проб держать в очереди | там же → `WAKEPROBE_WANT` | 3 |
+| Интервал опроса питания | `~/Library/LaunchAgents/local.mac-wakeup.notify.plist` → `POWERNOTIFY_INTERVAL` | 30 с |
+| Подтверждающих замеров до отправки | там же → `POWERNOTIFY_DEBOUNCE` | 2 |
+| Чат Telegram | там же → `POWERNOTIFY_TARGET` | `telegram:ЧИСЛО` |
+| Путь к `hermes` | env `POWERNOTIFY_HERMES` | из `PATH`, иначе `$HOME/.hermes/...` |
+| Тексты сообщений | `power-notify.sh`, функция `compose()` | — |
+| Логи | `/var/log/hermes-wakeprobe.log`, `~/Library/Logs/mac-wakeup-notify.log` | — |
+
+Жёстко зашито (сознательно, менять не нужно): метка `hermes-wakeprobe`, имена
+launchd-джобов, пути `/usr/local/bin/hermes-wakeprobe.sh` и `~/.local/bin/power-notify.sh`,
+каталоги состояния (`/var/log`, `~/.local/state/mac-wakeup`), интервалы ретраев
+30 с → 60 с → 3 мин → 5 мин → 10 мин.
+
 ## Как устроено
 
 Wake-on-charger на Apple Silicon не существует (`pmset -g cap` не содержит `acwake`/`autorestart`),
@@ -162,15 +234,14 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.mac-wakeup.notify.
 ## Переустановка демона после правок `wakeprobe.sh`
 
 ```bash
-cd ~/Documents/mac-wakeup && ./test_plan.sh          # сначала тесты: PASS (10/10)
-cp wakeprobe.sh /tmp/wakeprobe.sh                    # ОБЯЗАТЕЛЬНО через /tmp, см. ниже
-sudo install -o root -g wheel -m 755 /tmp/wakeprobe.sh /usr/local/bin/hermes-wakeprobe.sh
-sudo launchctl kickstart -k system/local.hermes.wakeprobe
+cd ~/Documents/mac-wakeup && ./install-wakeprobe.sh    # тесты + переустановка + проверка
 ```
 
-`cp` в `/tmp` обязателен: `~/Documents` защищён TCC, и root-процесс (`sudo`, а также `osascript …
-with administrator privileges`) читать оттуда не может — `install` из `~/Documents` падает с
-`Operation not permitted (1)`. Копия в `/tmp` читается без проблем.
+Скрипт сам делает всё, что нужно знать про TCC: `~/Documents` защищён, и root (в том числе
+через `osascript … with administrator privileges`) не может оттуда даже **прочитать** —
+поэтому он сначала кладёт `wakeprobe.sh`, plist и самого себя в `/tmp` от твоего имени, а потом
+перезапускается через `sudo` уже из `/tmp`. Если запустить его сразу с `sudo` без этой
+подготовки, он честно скажет, чего не хватает.
 
 ## Краштест gateway (только из отдельного окна Terminal)
 

@@ -7,6 +7,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
 PLIST="$HOME/Library/LaunchAgents/local.mac-wakeup.notify.plist"
 LABEL="local.mac-wakeup.notify"
+TARGET="${POWERNOTIFY_TARGET:-telegram:ЧИСЛО}"
+INTERVAL="${POWERNOTIFY_INTERVAL:-30}"
+DEBOUNCE="${POWERNOTIFY_DEBOUNCE:-2}"
 
 "$HERE/test_notify.sh"
 
@@ -28,9 +31,9 @@ cat >"$PLIST" <<PLIST_EOF
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>POWERNOTIFY_TARGET</key><string>telegram:ЧИСЛО</string>
-    <key>POWERNOTIFY_INTERVAL</key><string>30</string>
-    <key>POWERNOTIFY_DEBOUNCE</key><string>2</string>
+    <key>POWERNOTIFY_TARGET</key><string>$TARGET</string>
+    <key>POWERNOTIFY_INTERVAL</key><string>$INTERVAL</string>
+    <key>POWERNOTIFY_DEBOUNCE</key><string>$DEBOUNCE</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
