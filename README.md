@@ -26,6 +26,21 @@ pmset -g sched | grep -c "hermes-wakeprobe"     # expect 3
 sudo tail -5 /var/log/hermes-wakeprobe.log
 ```
 
+## Crash test (run from a shell OUTSIDE the gateway)
+
+The gateway's chat session lives inside the gateway process, so this must be a separate Terminal
+window. `KeepAlive` is `{ SuccessfulExit = false }`: any signal/crash death relaunches, a clean
+`exit 0` stop does not. `ThrottleInterval` is 30 s, so expect ~30–40 s of downtime.
+
+```bash
+pkill -9 -f "gateway run --external-supervisor"; sleep 40
+launchctl print gui/$(id -u)/ai.hermes.gateway | grep -E "state =|pid =|runs ="
+hermes gateway status | head -4
+```
+
+Pass: `state = running`, a **new** pid, `runs` incremented by one, and status still says
+"supervised by launchd".
+
 ## Rollback
 
 ```bash
