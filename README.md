@@ -90,10 +90,15 @@ launchctl print gui/$(id -u)/ai.hermes.gateway | grep -E "state =|pid =|runs ="
 ## Переустановка демона после правок `wakeprobe.sh`
 
 ```bash
-cd ~/Documents/mac-wakeup && ./test_plan.sh          # сначала тесты: PASS (6/6)
-sudo install -o root -g wheel -m 755 wakeprobe.sh /usr/local/bin/hermes-wakeprobe.sh
+cd ~/Documents/mac-wakeup && ./test_plan.sh          # сначала тесты: PASS (10/10)
+cp wakeprobe.sh /tmp/wakeprobe.sh                    # ОБЯЗАТЕЛЬНО через /tmp, см. ниже
+sudo install -o root -g wheel -m 755 /tmp/wakeprobe.sh /usr/local/bin/hermes-wakeprobe.sh
 sudo launchctl kickstart -k system/local.hermes.wakeprobe
 ```
+
+`cp` в `/tmp` обязателен: `~/Documents` защищён TCC, и root-процесс (`sudo`, а также `osascript …
+with administrator privileges`) читать оттуда не может — `install` из `~/Documents` падает с
+`Operation not permitted (1)`. Копия в `/tmp` читается без проблем.
 
 ## Краштест gateway (только из отдельного окна Terminal)
 
