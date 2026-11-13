@@ -12,7 +12,7 @@ set -uo pipefail
 
 PMSET="${POWERNOTIFY_PMSET:-/usr/bin/pmset}"
 HERMES="${POWERNOTIFY_HERMES:-$(command -v hermes 2>/dev/null || echo "$HOME/.hermes/hermes-agent/.hermes/bin/hermes")}"
-TARGET="${POWERNOTIFY_TARGET:-telegram:ЧИСЛО}"
+TARGET="${POWERNOTIFY_TARGET:-}"               # required at runtime, e.g. telegram:123456789
 STATE_DIR="${POWERNOTIFY_STATE_DIR:-$HOME/.local/state/mac-wakeup}"
 STATE_FILE="$STATE_DIR/power-state"
 OUTBOX="$STATE_DIR/outbox.txt"
@@ -61,6 +61,13 @@ case "${1:-}" in
 esac
 
 # ---- runtime ----
+# No baked-in default on purpose: a hardcoded chat id would ship the maintainer's
+# Telegram id to everyone who clones this repo.
+if [ -z "$TARGET" ] && [ "$DRY" != 1 ]; then
+  echo "power-notify: POWERNOTIFY_TARGET is not set (format: telegram:ЧИСЛО)." >&2
+  echo "  discover it with: hermes send --list telegram" >&2
+  exit 2
+fi
 mkdir -p "$STATE_DIR" "$(dirname "$LOG")"
 log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG" 2>/dev/null || true; }
 

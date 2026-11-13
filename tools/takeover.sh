@@ -2,8 +2,8 @@
 # One-shot takeover: hand the gateway over from the manually started process to
 # the launchd agent ai.hermes.gateway (which has RunAtLoad + KeepAlive).
 # Submitted via `launchctl submit` so it survives the gateway being killed.
-LOG="/Users/mykyta/Documents/mac-wakeup/takeover.log"
-HERMES="/Users/mykyta/.hermes/hermes-agent/.hermes/bin/hermes"
+LOG="${TAKEOVER_LOG:-$HOME/Library/Logs/mac-wakeup-takeover.log}"
+HERMES="${HERMES:-$(command -v hermes 2>/dev/null || echo "$HOME/.hermes/hermes-agent/.hermes/bin/hermes")}"
 UID_NUM="$(id -u)"
 
 {

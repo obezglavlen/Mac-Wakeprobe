@@ -1,5 +1,0 @@
-date: 2026-11-12 15:58:06
- -InternalBattery-0 (id=22413411)	80%; AC attached; not charging present: true
-Scheduled power events:
- [0]  wake at 11/12/2026 15:38:29 by 'com.apple.alarm.user-invisible-com.apple.acmd.alarm'
- [1]  wake at 11/12/2026 17:16:45 by 'com.apple.alarm.user-invisible-com.apple.calaccessd.travelEngine.periodicRefreshTimer'

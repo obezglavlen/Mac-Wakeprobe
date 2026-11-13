@@ -66,7 +66,7 @@ pmset -g sched | grep -c hermes-wakeprobe     # 3
 | Сколько проб держать в очереди | там же → `WAKEPROBE_WANT` | 3 |
 | Интервал опроса питания | `~/Library/LaunchAgents/local.mac-wakeup.notify.plist` → `POWERNOTIFY_INTERVAL` | 30 с |
 | Подтверждающих замеров до отправки | там же → `POWERNOTIFY_DEBOUNCE` | 2 |
-| Чат Telegram | там же → `POWERNOTIFY_TARGET` | `telegram:ЧИСЛО` |
+| Чат Telegram | там же → `POWERNOTIFY_TARGET` | **обязателен**, задаётся при установке (`telegram:ЧИСЛО`) |
 | Путь к `hermes` | env `POWERNOTIFY_HERMES` | из `PATH`, иначе `$HOME/.hermes/...` |
 | Тексты сообщений | `power-notify.sh`, функция `compose()` | — |
 | Логи | `/var/log/hermes-wakeprobe.log`, `~/Library/Logs/mac-wakeup-notify.log` | — |
@@ -280,3 +280,22 @@ done
 - FileVault включён: после *перезагрузки* ничего не стартует до входа в систему. Отсюда и стратегия
   «не дать выключиться», а не «поднять после ребута».
 - Пробуждения расходуют батарею; порог заряда самого Vorssaint — `batteryLimitPercent = 10`.
+
+## Что лежит в репозитории
+
+```
+wakeprobe.sh, local.hermes.wakeprobe.plist   демон пробуждений (+ его plist)
+power-notify.sh                               уведомлятор в Telegram
+install-wakeprobe.sh, install-notify.sh       установка/переустановка
+test_plan.sh, test_notify.sh, fixtures/       тесты и фикстуры `pmset -g sched`
+tools/                                        разовые скрипты: замеры, отчёт, краштест
+measurements.md                               замеры и выводы (Wake vs DarkWake и т.д.)
+```
+
+Логи и рантайм-состояние (`*.log`, `*.err`, `~/.local/state/mac-wakeup`) в git не попадают —
+см. `.gitignore`. Секретов в репозитории нет: chat id передаётся при установке, токен бота
+живёт в конфиге Hermes и скриптами не читается.
+
+## Лицензия
+
+MIT — см. `LICENSE`. Копирайт сохрани, остальное делай что хочешь.

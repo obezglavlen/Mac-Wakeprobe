@@ -7,9 +7,16 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
 PLIST="$HOME/Library/LaunchAgents/local.mac-wakeup.notify.plist"
 LABEL="local.mac-wakeup.notify"
-TARGET="${POWERNOTIFY_TARGET:-telegram:ЧИСЛО}"
+TARGET="${POWERNOTIFY_TARGET:-}"
 INTERVAL="${POWERNOTIFY_INTERVAL:-30}"
 DEBOUNCE="${POWERNOTIFY_DEBOUNCE:-2}"
+
+if [ -z "$TARGET" ]; then
+  echo "POWERNOTIFY_TARGET is not set." >&2
+  echo "usage: POWERNOTIFY_TARGET=telegram:123456789 ./install-notify.sh" >&2
+  echo "       list targets: hermes send --list telegram" >&2
+  exit 1
+fi
 
 "$HERE/test_notify.sh"
 

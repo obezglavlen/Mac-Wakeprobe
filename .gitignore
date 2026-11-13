@@ -1,0 +1,16 @@
+# Logs and runtime state produced by the scripts (never commit these)
+*.log
+*.err
+*.out
+
+# macOS
+.DS_Store
+._*
+
+# Local state / staging used by the installers
+/.state/
+/tmp/
+
+# Local secrets, if you keep a .env for POWERNOTIFY_TARGET
+.env
+.env.*
