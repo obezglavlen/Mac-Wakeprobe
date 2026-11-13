@@ -1,13 +1,13 @@
 # mac-wakeup — мак просыпается сам, когда возвращается электричество
 
-Проект каталога: `~/Documents/mac-wakeup` (git). Скрипт демона лежит в git, но **работает не он**:
-launchd запускает установленную копию `/usr/local/bin/hermes-wakeprobe.sh`, поэтому перенос каталога
-ничего не ломает.
+Проект каталога: `~/Documents/mac-wakeup` (git). Управление — одной командой **`macwake`**
+(`macwake install` ставит её в `~/.local/bin/macwake`, так что она работает из любого места).
+Скрипт демона лежит в git, но **работает не он**: launchd запускает установленную копию
+`/usr/local/bin/hermes-wakeprobe.sh`, поэтому перенос каталога ничего не ломает.
 
 ## Быстрый старт на новом маке (5 минут)
 
 Предполагается: macOS, установленный Hermes с настроенным Telegram-ботом, интернет.
-Заодно ставится приложение-держатель (см. шаг 9) — без него схема не имеет смысла.
 
 ```bash
 # 1. Убедиться, что железо вообще не умеет wake-on-charger (ожидаем 0)
@@ -17,144 +17,131 @@ pmset -g cap | tr ' ' '\n' | grep -c acwake
 hermes gateway status
 hermes gateway install            # только если в статусе «Running manually»
 
-# 3. Узнать chat id для уведомлений (формат telegram:ЧИСЛО)
-hermes send --list telegram
-
-# 4. Забрать проект
+# 3. Забрать проект
 git clone <URL-репозитория> ~/Documents/mac-wakeup   # или просто скопировать папку
 cd ~/Documents/mac-wakeup
 
-# 5. Тесты до установки: должно быть PASS (10/10) и PASS (17/17)
-./test_plan.sh && ./test_notify.sh
+# 4. Одна команда: тесты → держатель → уведомлятор → демон проб (пароль один раз, для демона)
+./macwake install --notify telegram:123456789
+#    chat id: hermes send --list telegram
+#    без уведомлений:                       ./macwake install --no-notify
+#    если держит Vorssaint/Amphetamine:     --holder none
+#    интервал проб и очередь:               --step 12 --want 3
 
-# 6. Демон пробуждения (спросит пароль один раз; TCC обходится через /tmp сам)
-./install-wakeprobe.sh
-#    ждём: state = running, pid = ..., queued ours: 3 (expect 3)
-
-# 7. Уведомлятор в Telegram (подставь свой chat id из шага 3)
-POWERNOTIFY_TARGET=telegram:123456789 ./install-notify.sh
-#    ждём: PASS (17/17), «installed», state = running
-
-# 8. Проверки: сообщение доходит и переходы ловятся
+# 5. Проверки
+macwake status                                # пробы running, держатель держит, уведомлятор running
+pmset -g sched | grep -c hermes-wakeprobe     # 3
 hermes send --to telegram:123456789 "проверка связи"
 #    затем отключи зарядку на 30 секунд и подключи обратно — придёт два сообщения
 tail -5 ~/Library/Logs/mac-wakeup-notify.log
-pmset -g sched | grep -c hermes-wakeprobe     # 3
 ```
 
-```bash
-# 9. Держатель «пока подключено питание» — обязательно, иначе после пробуждения
-#    мак снова уснёт через минуту. Варианты:
-#    Vorssaint → Preferences → keep awake при keepAwakeConnectedToPower = true
-#    Amphetamine → «Allow system to sleep… off, while plugged in»
-#    или свой caffeinate-демон (см. раздел «Стоимость для батареи»)
-```
-
-Готово. Проверить всё разом: `./tools/report.sh` (для демона) и лог уведомлятора.
+Готово. Проверить всё разом: `macwake status` и `./tools/report.sh`.
 
 Если что-то не сошлось — почти всегда одна из трёх причин: файл не в `/tmp` (TCC),
-`pmset`-события старые (почисти: раздел «Выключить»), или chat id в plist не тот.
+`pmset`-события старые (почисти: `macwake disable` / `macwake enable`), или chat id не тот.
 
 ## Что где конфигурируется
 
-Отдельного конфиг-файла нет: скрипты читают переменные окружения, а их задаёт plist
-соответствующего агента. Меняешь plist → переустанавливаешь (`install-*.sh`).
+Отдельного конфиг-файла нет: `macwake` пишет plist'ы сам, а скрипты читают переменные окружения
+из этих plist'ов. Поменял значение → `macwake install` заново (идемпотентен) либо правишь plist
+и делаешь `launchctl bootout` + `bootstrap`.
 
-| Параметр | Где | По умолчанию |
+| Параметр | Как задать | По умолчанию |
 |---|---|---|
-| Интервал проб пробуждения | `/Library/LaunchDaemons/local.hermes.wakeprobe.plist` → `WAKEPROBE_STEP_MIN` | 12 мин |
-| Сколько проб держать в очереди | там же → `WAKEPROBE_WANT` | 3 |
+| Интервал проб пробуждения | `macwake install --step N` (`WAKEPROBE_STEP_MIN` в plist демона) | 12 мин |
+| Сколько проб держать в очереди | `macwake install --want N` (`WAKEPROBE_WANT`) | 3 |
+| Держатель «не спать на AC» | `macwake hold on/off`; при установке флаг `--holder` (caffeinate или none) | caffeinate -s |
 | Интервал опроса питания | `~/Library/LaunchAgents/local.mac-wakeup.notify.plist` → `POWERNOTIFY_INTERVAL` | 30 с |
 | Подтверждающих замеров до отправки | там же → `POWERNOTIFY_DEBOUNCE` | 2 |
-| Чат Telegram | там же → `POWERNOTIFY_TARGET` | **обязателен**, задаётся при установке (`telegram:ЧИСЛО`) |
+| Чат Telegram | `macwake install --notify telegram:ЧИСЛО`, затем `macwake notify on --target …` | **обязателен** |
 | Путь к `hermes` | env `POWERNOTIFY_HERMES` | из `PATH`, иначе `$HOME/.hermes/...` |
 | Тексты сообщений | `power-notify.sh`, функция `compose()` | — |
-| Логи | `/var/log/hermes-wakeprobe.log`, `~/Library/Logs/mac-wakeup-notify.log` | — |
+| Логи | `/var/log/hermes-wakeprobe.log`, `~/Library/Logs/mac-wakeup-notify.log`, `~/Library/Logs/mac-wakeup-hold.err` | — |
 
-Жёстко зашито (сознательно, менять не нужно): метка `hermes-wakeprobe`, имена
-launchd-джобов, пути `/usr/local/bin/hermes-wakeprobe.sh` и `~/.local/bin/power-notify.sh`,
+Жёстко зашито (сознательно, менять не нужно): метка `hermes-wakeprobe` в `pmset`-событиях,
+имена launchd-джобов (`local.hermes.wakeprobe`, `local.mac-wakeup.hold`, `local.mac-wakeup.notify`),
+пути `/usr/local/bin/hermes-wakeprobe.sh` и `~/.local/bin/{power-notify.sh,macwake}`,
 каталоги состояния (`/var/log`, `~/.local/state/mac-wakeup`), интервалы ретраев
 30 с → 60 с → 3 мин → 5 мин → 10 мин.
 
 ## Как устроено
 
 Wake-on-charger на Apple Silicon не существует (`pmset -g cap` не содержит `acwake`/`autorestart`),
-поэтому схема собрана из двух половин:
+поэтому схема собрана из двух независимых половин:
 
 1. **Разбудить** — root-демон `local.hermes.wakeprobe` держит в очереди 3 события
-   `pmset schedule wake` с меткой `hermes-wakeprobe` (примерно +10/+20/+30 минут) и каждую минуту
-   докидывает недостающие. Спящий мак просыпается на ближайшем событии — максимум через 10 минут.
-2. **Удержать** — приложение **Vorssaint** (`com.vorssaint.utils`) с настройкой
-   `keepAwakeConnectedToPower = true` держит `PreventUserIdleSystemSleep`, пока подключено питание.
-   Как только проба разбудила мак с уже подключённой зарядкой, Vorssaint оставляет его включённым.
+   `pmset schedule wake` с меткой `hermes-wakeprobe` (примерно +12/+24/+36 минут) и каждую минуту
+   докидывает недостающие. Спящий мак просыпается на ближайшем событии — максимум через 12 минут.
+2. **Удержать** — пользовательский агент `local.mac-wakeup.hold` запускает `/usr/bin/caffeinate -s`.
+   Его assertion `PreventSystemSleep` действует **только на AC**: пока зарядка подключена, мак не
+   засыпает по idle; на батарее macOS assertion снимает, и мак спит как обычно. Это ровно то же
+   поведение, что у Vorssaint с `keepAwakeConnectedToPower` или у Amphetamine с «off, while
+   plugged in» — только без GUI-приложения. Если такое приложение уже стоит, бери `--holder none`.
 
-`caffeinate` в схеме не участвует. Gateway Hermes живёт отдельно: `ai.hermes.gateway`
+Почему именно `-s`, а не `-i`: `-i` держит `PreventUserIdleSystemSleep` независимо от источника
+питания, то есть жевал бы батарею; `-s` на батарее отпускает. Проверяется глазами:
+`pmset -g | grep sleep` — на AC в списке «sleep prevented by» должен появиться `caffeinate`.
+
+Gateway Hermes живёт отдельно: `ai.hermes.gateway`
 (LaunchAgent с `KeepAlive`), сон его не убивает, падение — перезапускает launchd за ~35 с.
 
-Проверки и замеры: `measurements.md`. Тесты планировщика: `./test_plan.sh`.
+Проверки и замеры: `measurements.md`. Тесты: `./test_plan.sh` (планировщик), `./test_notify.sh`
+(переходы питания), `./test_cli.sh` (macwake: dry-run и парсинг статуса на заглушках).
 
 | Что | Где |
 |---|---|
 | Демон пробуждений | `/Library/LaunchDaemons/local.hermes.wakeprobe.plist` → `/usr/local/bin/hermes-wakeprobe.sh` |
 | Лог демона | `/var/log/hermes-wakeprobe.log` (+ `.err`) |
-| Настройки | `WAKEPROBE_STEP_MIN` (интервал, мин), `WAKEPROBE_WANT` (сколько событий держать) в plist |
+| Настройки демона | `WAKEPROBE_STEP_MIN`, `WAKEPROBE_WANT` в plist (или флаги `install --step/--want`) |
+| Держатель | `~/Library/LaunchAgents/local.mac-wakeup.hold.plist` → `/usr/bin/caffeinate -s` |
+| Уведомлятор | `~/Library/LaunchAgents/local.mac-wakeup.notify.plist` → `~/.local/bin/power-notify.sh` |
+| CLI | `~/.local/bin/macwake` (копия `macwake` из репозитория) |
 | Gateway | `~/Library/LaunchAgents/ai.hermes.gateway.plist` |
 
-## Управление: выключить / включить
+## Управление: `macwake`
 
-### Проверить, что работает
+```bash
+macwake status              # что включено: пробы / держатель / уведомления / питание
+macwake enable              # включить пробы (поднять демон и зарядить очередь)
+macwake disable             # выключить пробы: bootout + disable + снять все события
+macwake disable --all       # то же + держатель и уведомления
+macwake hold on|off|status  # держатель «не спать на AC»; пробы не трогает
+macwake notify on|off       # уведомления в Telegram; пробы не трогает
+macwake install [...]       # установить/переконфигурировать всё
+macwake uninstall [--purge] # снять всё (--purge: ещё логи и состояние)
+```
+
+Три вещи, которые стоит держать в голове (это и есть смысл разделения):
+
+- `disable` **не** трогает держатель: мак, разбуженный вручную, останется включённым на AC.
+- `hold off` **не** трогает пробы: мак продолжит просыпаться раз в 12 минут, но уснёт через
+  минуту после пробуждения. Нужно «спать и не просыпаться» — это `disable`.
+- Держатель и уведомления — пользовательские агенты, sudo им не нужен. Пробы — root-демон,
+  поэтому `enable/disable/install/uninstall` спросят пароль один раз (CLI сам делает `sudo`
+  и сам обходит TCC: `~/Documents` root прочитать не может, поэтому скрипт сначала кладётся в `/tmp`).
+
+### Проверить вручную
 
 ```bash
 launchctl print system/local.hermes.wakeprobe | grep -E "state =|pid ="   # state = running
 pmset -g sched | grep -c "hermes-wakeprobe"                              # 3
+pmset -g | grep "sleep "                                                 # на AC: ... by caffeinate
 sudo tail -5 /var/log/hermes-wakeprobe.log                               # тикает раз в минуту
 ```
 
-### Выключить (временно, до перезагрузки)
-
-```bash
-sudo launchctl bootout system/local.hermes.wakeprobe
-pmset -g sched | sed -nE "s/.*wake at ([0-9]{2}\/[0-9]{2}\/[0-9]{2,4} [0-9:]{8}) by 'hermes-wakeprobe'.*/\1/p" |
-while IFS= read -r d; do
-  cts=$(date -j -f "%m/%d/%Y %H:%M:%S" "$d" '+%m/%d/%y %H:%M:%S' 2>/dev/null) || cts="$d"
-  sudo pmset schedule cancel wake "$cts" hermes-wakeprobe
-done
-pmset -g sched | grep -c hermes-wakeprobe    # ожидаем 0
-```
-
-Два подвоха, на которых легко обжечься:
+### Подвохи `pmset`, на которые наступает любой самодельный CLI
 
 - `pmset -g sched` печатает год **четырёхзначным**, а `pmset schedule cancel` четырёхзначный
-  отвергает («Badly formatted date»). Нужен двузначный — отсюда `date -j -f` в примере.
+  отвергает («Badly formatted date»). Нужен двузначный — отсюда `date -j -f`. `macwake` это уже делает.
 - `for d in $(...)` разбивает «11/12/2026 16:59:27» по пробелу, и все cancel'ы падают.
   Только `while IFS= read -r d`.
-
-После перезагрузки демон поднимется снова (plist остался на месте).
-
-### Выключить насовсем (переживает перезагрузку)
-
-```bash
-sudo launchctl bootout system/local.hermes.wakeprobe
-sudo launchctl disable system/local.hermes.wakeprobe
-```
-
-### Включить обратно
-
-```bash
-sudo launchctl enable system/local.hermes.wakeprobe
-sudo launchctl bootstrap system /Library/LaunchDaemons/local.hermes.wakeprobe.plist
-sleep 6
-launchctl print system/local.hermes.wakeprobe | grep -E "state =|pid ="   # state = running
-pmset -g sched | grep -c "hermes-wakeprobe"                              # 3
-```
-
-`bootstrap` идемпотентным не бывает: если ругается «service already loaded», сначала `bootout`.
+- **Никогда** не `sudo pmset schedule cancelall` — сносит и системные будильники Apple.
 
 ### Приостановить «по-тихому», ничего не снимая
 
-Просто отключи зарядку — мак уснёт сам через минуту (Vorssaint отпускает на батарее), а пробуждения
-продолжат его будить раз в 10 минут. Если нужно, чтобы он спал и **не** просыпался — только `bootout`
-из предыдущего раздела.
+Отключи зарядку: `caffeinate -s` отпускает assertion на батарее, мак засыпает через минуту.
+Пробы при этом продолжают его будить раз в 12 минут — если не нужно и это, `macwake disable`.
 
 ### Сам gateway (отдельная история)
 
@@ -179,7 +166,7 @@ launchctl print gui/$(id -u)/ai.hermes.gateway | grep -E "state =|pid =|runs ="
 - Лог: `~/Library/Logs/mac-wakeup-notify.log`, stderr: `~/Library/Logs/mac-wakeup-notify.err`
 - Текущее состояние в кэше: `~/.local/state/mac-wakeup/power-state` (`AC` / `BATT`)
 - Неотправленные сообщения: `~/.local/state/mac-wakeup/outbox.txt`
-- Тесты: `./test_notify.sh` (11 проверок логики переходов и текста)
+- Тесты: `./test_notify.sh` (переходы, текст, backoff и доставка через outbox)
 
 Логика: первое показание только запоминается (никакого спама при логине), переход
 подтверждается двумя согласными замерами подряд (защита от дребезга разъёма), затем сообщение
@@ -193,6 +180,7 @@ launchctl print gui/$(id -u)/ai.hermes.gateway | grep -E "state =|pid =|runs ="
 Проверить:
 
 ```bash
+macwake status
 launchctl print gui/$(id -u)/local.mac-wakeup.notify | grep -E "state =|pid ="
 tail -5 ~/Library/Logs/mac-wakeup-notify.log
 cat ~/.local/state/mac-wakeup/power-state
@@ -202,18 +190,19 @@ cat ~/.local/state/mac-wakeup/outbox.txt     # пусто = всё достав�
 Выключить / включить:
 
 ```bash
-launchctl bootout gui/$(id -u)/local.mac-wakeup.notify
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.mac-wakeup.notify.plist
+macwake notify off
+macwake notify on                    # цель берётся из plist
+macwake notify on --target telegram:123456789   # или задать новую (перепишет plist)
 ```
 
 Переустановить после правок `power-notify.sh` (сам прогонит тесты и перерегистрирует агент):
 
 ```bash
-~/Documents/mac-wakeup/install-notify.sh
+cd ~/Documents/mac-wakeup && ./macwake install --notify telegram:ЧИСЛО
 ```
 
-Сменить чат/интервал — `POWERNOTIFY_TARGET` и `POWERNOTIFY_INTERVAL` в
-`~/Library/LaunchAgents/local.mac-wakeup.notify.plist`, затем `install-notify.sh` заново.
+Интервал опроса — `POWERNOTIFY_INTERVAL` в `~/Library/LaunchAgents/local.mac-wakeup.notify.plist`,
+затем `launchctl bootout` + `bootstrap` (или `macwake notify on`).
 Список доступных целей: `hermes send --list telegram`.
 
 ### Стоимость для батареи и бюджет задержки
@@ -223,25 +212,29 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.mac-wakeup.notify.
 | Опрос питания | раз в 30 с | пока мак спит, процесс тоже спит — опрос бесплатен; платим только пока бодрствуем |
 | Повтор отправки при сбое | 30 с → 60 с → 3 мин → 5 мин → 10 мин (кап) | каждая попытка — целый Python-процесс; на батарее нельзя долбить |
 | Пробы пробуждения | раз в 12 мин, 3 в очереди | после пробы мак бодрствует ~60 с (до idle sleep) при ~5 Вт ≈ 0.5 % батареи в час |
-| Худшая задержка уведомления | 30 с | дебаунс 2 замера |
-| Худшая задержка восстановления после света | 12 мин (проба) + 30 с = ~12.5 мин | укладывается в разрешённые 15, остаётся запас |
+| Держатель | ничего | `caffeinate -s` живёт только на AC; на батарее assertion снят, расход = обычный |
+| Худшая задержка уведомления | 60 с | дебаунс 2 замера по 30 с |
+| Худшая задержка восстановления после света | 12 мин (проба) + 60 с = ~13 мин | укладывается в разрешённые 15, остаётся запас |
 
 Для сравнения: при пробах раз в 10 мин это было ~0.7 %/ч, раз в 15 — ~0.33 %/ч, но тогда
 худший случай ровно 15 минут без запаса. 12 минут — компромисс. Менять:
-`WAKEPROBE_STEP_MIN` в `/Library/LaunchDaemons/local.hermes.wakeprobe.plist`
-(+ `launchctl bootout`/`bootstrap`), `POWERNOTIFY_INTERVAL` — в plist уведомлятора.
+`macwake install --step 15` (перепишет plist демона и перезапустит его),
+`POWERNOTIFY_INTERVAL` — в plist уведомлятора.
 
-## Переустановка демона после правок `wakeprobe.sh`
+## Переустановка / правки
 
 ```bash
-cd ~/Documents/mac-wakeup && ./install-wakeprobe.sh    # тесты + переустановка + проверка
+cd ~/Documents/mac-wakeup && ./macwake install    # тесты + переустановка + проверка
 ```
 
-Скрипт сам делает всё, что нужно знать про TCC: `~/Documents` защищён, и root (в том числе
-через `osascript … with administrator privileges`) не может оттуда даже **прочитать** —
-поэтому он сначала кладёт `wakeprobe.sh`, plist и самого себя в `/tmp` от твоего имени, а потом
-перезапускается через `sudo` уже из `/tmp`. Если запустить его сразу с `sudo` без этой
-подготовки, он честно скажет, чего не хватает.
+`install` идемпотентен: снимает старые агенты и поднимает заново. TCC он обходит сам —
+`~/Documents` защищён, и root не может оттуда даже **прочитать**, поэтому CLI сначала кладёт
+`wakeprobe.sh` и себя в `/tmp` от твоего имени, а потом перезапускается через `sudo` уже из `/tmp`.
+Запускать надо **от своего имени** (без `sudo`): пароль CLI спросит сам, только для root-половины.
+`sudo macwake install` тоже отработает, но оставит root-owned файлы в `~/.local/bin` — не надо.
+
+Состав установки можно сузить: `--no-notify` (без уведомлений), `--holder none` (держит Vorssaint
+или ничего), `--step N --want N` (интервал и очередь проб).
 
 ## Краштест gateway (только из отдельного окна Terminal)
 
@@ -260,35 +253,34 @@ launchd».
 ## Полный откат
 
 ```bash
-sudo launchctl bootout system/local.hermes.wakeprobe
-sudo launchctl disable system/local.hermes.wakeprobe
-sudo rm /Library/LaunchDaemons/local.hermes.wakeprobe.plist /usr/local/bin/hermes-wakeprobe.sh
-pmset -g sched | sed -nE "s/.*wake at ([0-9]{2}\/[0-9]{2}\/[0-9]{2,4} [0-9:]{8}) by 'hermes-wakeprobe'.*/\1/p" |
-while IFS= read -r d; do
-  cts=$(date -j -f "%m/%d/%Y %H:%M:%S" "$d" '+%m/%d/%y %H:%M:%S' 2>/dev/null) || cts="$d"
-  sudo pmset schedule cancel wake "$cts" hermes-wakeprobe
-done
+macwake uninstall --purge
 ```
+
+Снимает пробы (bootout + disable + все события), держатель, уведомлятор, plist'ы, скрипты,
+логи и состояние — и удаляет себя из `~/.local/bin`. Настройки `pmset` и сторонние приложения
+(Vorssaint/Amphetamine) не трогает. Обратно: `cd ~/Documents/mac-wakeup && ./macwake install`.
 
 **Никогда** не запускай `sudo pmset schedule cancelall` — он сносит и системные будильники Apple.
 
 ## Известные ограничения
 
-- Wake-on-charger на этом железе нет: задержка восстановления = интервал проб (по умолчанию 10 мин).
+- Wake-on-charger на этом железе нет: задержка восстановления = интервал проб (по умолчанию 12 мин).
 - Полностью севшая батарея не восстанавливается удалённо — ноутбук с 0% сам не включается при
   возврате питания (`autorestart` у ноутбуков Apple нет).
 - FileVault включён: после *перезагрузки* ничего не стартует до входа в систему. Отсюда и стратегия
   «не дать выключиться», а не «поднять после ребута».
-- Пробуждения расходуют батарею; порог заряда самого Vorssaint — `batteryLimitPercent = 10`.
+- Пробуждения расходуют батарею; держатель (`caffeinate -s`) на батарее ничего не делает.
+- Держатель и уведомлятор — пользовательские LaunchAgent'ы: до логина их нет (как и любого
+  GUI-приложения вроде Vorssaint).
 
 ## Что лежит в репозитории
 
 ```
-wakeprobe.sh, local.hermes.wakeprobe.plist   демон пробуждений (+ его plist)
+macwake                                       CLI: install/uninstall/enable/disable/hold/notify/status
+wakeprobe.sh                                  демон пробуждений (plist генерирует macwake)
 power-notify.sh                               уведомлятор в Telegram
-install-wakeprobe.sh, install-notify.sh       установка/переустановка
-test_plan.sh, test_notify.sh, fixtures/       тесты и фикстуры `pmset -g sched`
-tools/                                        разовые скрипты: замеры, отчёт, краштест
+test_plan.sh, test_notify.sh, test_cli.sh     тесты; fixtures/ — образцы `pmset -g sched`
+tools/                                        разовый скрипт: report.sh (собрать все улики)
 measurements.md                               замеры и выводы (Wake vs DarkWake и т.д.)
 ```
 

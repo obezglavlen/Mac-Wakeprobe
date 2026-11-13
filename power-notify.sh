@@ -56,8 +56,9 @@ case "${1:-}" in
   --decide)  decide "${2:-}" "${3:-}" "${4:-0}" "${5:-2}"; exit 0 ;;
   --compose) compose "${2:?state}" "${3:-}"; exit 0 ;;
   --backoff) backoff "${2:-1}"; exit 0 ;;
+  --once)    : ;;   # one loop iteration, then exit (used by tests)
   "")        : ;;   # no args: run the daemon loop
-  *)         echo "usage: $0 [--decide last now streak debounce | --compose state pct | --backoff attempt]" >&2; exit 2 ;;
+  *)         echo "usage: $0 [--decide last now streak debounce | --compose state pct | --backoff attempt | --once]" >&2; exit 2 ;;
 esac
 
 # ---- runtime ----
@@ -88,18 +89,21 @@ ATTEMPTS=0
 flush() { # $1 = now (epoch)
   [ -s "$OUTBOX" ] || return 0
   [ "$1" -ge "$NEXT_FLUSH" ] || return 0
-  local queue line blocked=0
+  local queue rest line blocked=0
   queue="$(mktemp -t powernotify)"
+  rest="$(mktemp -t powernotify)"
   cp "$OUTBOX" "$queue"
-  : >"$OUTBOX"
   while IFS= read -r line; do
     [ -z "$line" ] && continue
-    if [ "$blocked" = 1 ]; then printf '%s\n' "$line" >>"$OUTBOX"; continue; fi
+    if [ "$blocked" = 1 ]; then printf '%s\n' "$line" >>"$rest"; continue; fi
     if send "$line"; then log "sent: $line"; else
       blocked=1
-      printf '%s\n' "$line" >>"$OUTBOX"
+      printf '%s\n' "$line" >>"$rest"
     fi
   done <"$queue"
+  # atomic replace: the outbox is never truncated in place, so a kill mid-send
+  # cannot lose messages that were already accepted.
+  mv "$rest" "$OUTBOX"
   rm -f "$queue"
   if [ "$blocked" = 1 ]; then
     # Every failed attempt is a whole Python process — back off instead of hammering.
@@ -116,7 +120,8 @@ streak=0
 cand=""
 log "power-notify start pid=$$ last='${last}' interval=${INTERVAL}s debounce=${DEBOUNCE} dry=${DRY}"
 
-while true; do
+once() {
+  local now_state msg
   now_state="$(read_state)"
   if [ -z "$last" ]; then
     last="$now_state"; printf '%s\n' "$last" >"$STATE_FILE"
@@ -135,5 +140,19 @@ while true; do
     fi
   fi
   flush "$(date +%s)"
+}
+
+if [ "${1:-}" = "--once" ]; then
+  n="${2:-1}"
+  i=0
+  while [ "$i" -lt "$n" ]; do
+    once
+    i=$((i + 1))
+  done
+  exit 0
+fi
+
+while true; do
+  once
   sleep "$INTERVAL"
 done

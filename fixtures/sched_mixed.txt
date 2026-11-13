@@ -1,5 +1,0 @@
-Scheduled power events:
- [0]  wake at 01/01/20 10:00:00 by 'hermes-wakeprobe'
- [1]  wake at 01/01/20 10:10:00 by 'hermes-wakeprobe'
- [2]  wake at 01/01/2031 10:00:00 by 'hermes-wakeprobe'
- [3]  wake at 11/12/2026 17:16:45 by 'com.apple.alarm.user-invisible-com.apple.calaccessd.travelEngine.periodicRefreshTimer'

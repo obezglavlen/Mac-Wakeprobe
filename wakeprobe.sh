@@ -5,8 +5,8 @@
 #                   stale (already past) events are cancelled, missing future
 #                   ones are armed.
 #   (no args)       daemon loop: re-arm every INTERVAL seconds, log the power state.
-# It holds NO power assertion. Staying awake is Vorssaint's job: it keeps the
-# Mac awake while connected to AC, so a probe wake on restored power is enough.
+# It holds NO power assertion. Staying awake on AC is the holder's job
+# (caffeinate -s, or an external app when installed with `--holder none`).
 set -uo pipefail
 
 LABEL="hermes-wakeprobe"
@@ -29,9 +29,12 @@ to_epoch() {
 }
 
 plan() { # $1 = file containing `pmset -g sched` output
-  local sched line ts ep now future i off
+  local sched line ts ep now future i off horizon
   sched="$(cat "$1")"
   now="$("$DATE" +%s)"
+  # A probe further out than this is an artifact (bad clock / manual arm): ignore
+  # it so it cannot fill the queue and stop us arming real probes.
+  horizon=$(( now + STEP_MIN * WANT * 60 + GRACE ))
   future=0
 
   # Pass 1: classify our events. Stale ones are cancelled with their own
@@ -46,14 +49,15 @@ plan() { # $1 = file containing `pmset -g sched` output
     if [ -z "${ep:-}" ]; then
       continue                      # unparsable: leave it alone rather than cancel blind
     fi
-    if [ "$ep" -gt "$((now + GRACE))" ]; then
-      future=$((future + 1))
-    else
+    if [ "$ep" -le "$((now + GRACE))" ]; then
       # `pmset schedule cancel` rejects the four-digit year that `pmset -g sched`
       # prints ("Badly formatted date"), so hand it the two-digit form it arms with.
       cts="$("$DATE" -j -f "%m/%d/%Y %H:%M:%S" "$ts" '+%m/%d/%y %H:%M:%S' 2>/dev/null || echo "$ts")"
       printf '%s schedule cancel wake "%s" %s\n' "$PMSET" "$cts" "$LABEL"
+    elif [ "$ep" -le "$horizon" ]; then
+      future=$((future + 1))
     fi
+    # else: far-future artifact — leave it, don't count, don't cancel
   done <<<"$sched"
 
   # Pass 2: arm what is missing.
@@ -71,7 +75,15 @@ if [ "${1:-}" = "--plan" ]; then
   exit 0
 fi
 
-log() { printf '%s %s\n' "$("$DATE" '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG" 2>/dev/null || true; }
+log() {
+  # the daemon runs forever and never deletes this file — rotate it, don't grow it
+  local size
+  size="$(/usr/bin/stat -f%z "$LOG" 2>/dev/null || echo 0)"
+  if [ -f "$LOG" ] && [ "$size" -gt 1048576 ]; then
+    mv "$LOG" "$LOG.1" 2>/dev/null || true
+  fi
+  printf '%s %s\n' "$("$DATE" '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG" 2>/dev/null || true
+}
 
 tick() {
   local tmp n power pct line
