@@ -42,9 +42,9 @@ compose_has() { # state pct needle
   fi
 }
 
-compose_has BATT 83 отключено
+compose_has BATT 83 "Power lost"
 compose_has BATT 83 83%
-compose_has AC 91 восстановлено
+compose_has AC 91 "Power restored"
 
 # Retry backoff after a failed send: a failed `hermes send` spawns a whole Python
 # process, so retrying every tick on battery is wasteful. Doubling-ish ladder, capped.
@@ -103,37 +103,37 @@ batt(){ printf "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1)\t80
 # first run just records the state, sends nothing
 rm -rf "$DTMP/state"; ac; run_once
 if [ "$(cat "$DTMP/state/power-state" 2>/dev/null)" = "AC" ] && [ ! -s "$DTMP/state/outbox.txt" ]; then
-  d_ok "первый запуск записывает состояние и не шлёт сообщение"
+  d_ok "first run records the state and sends nothing"
 else
-  d_bad "первый запуск: state=$(cat "$DTMP/state/power-state" 2>/dev/null) outbox=$(cat "$DTMP/state/outbox.txt" 2>/dev/null)"
+  d_bad "first run: state=$(cat "$DTMP/state/power-state" 2>/dev/null) outbox=$(cat "$DTMP/state/outbox.txt" 2>/dev/null)"
 fi
 
 # debounce: one BATT reading is not enough
 batt; run_once
-if [ ! -s "$DTMP/state/outbox.txt" ]; then d_ok "debounce: одного замера BATT мало"; else d_bad "debounce: ушло сообщение после одного замера"; fi
+if [ ! -s "$DTMP/state/outbox.txt" ]; then d_ok "debounce: one BATT reading is not enough"; else d_bad "debounce: a message went out after one reading"; fi
 
 # two agreeing readings -> one offline message, outbox drained, state updated
 batt; run_once 2
-if grep -q "отключено" "$DTMP/hermes-log" && [ ! -s "$DTMP/state/outbox.txt" ] && [ "$(cat "$DTMP/state/power-state" 2>/dev/null)" = "BATT" ]; then
-  d_ok "переход AC->BATT: одно сообщение, очередь пуста, состояние BATT"
+if grep -q "Power lost" "$DTMP/hermes-log" && [ ! -s "$DTMP/state/outbox.txt" ] && [ "$(cat "$DTMP/state/power-state" 2>/dev/null)" = "BATT" ]; then
+  d_ok "transition AC->BATT: one message, empty queue, state BATT"
 else
-  d_bad "переход AC->BATT: log=$(cat "$DTMP/hermes-log" 2>/dev/null | tr '\n' ' ')"
+  d_bad "transition AC->BATT: log=$(cat "$DTMP/hermes-log" 2>/dev/null | tr '\n' ' ')"
 fi
 
 # failed send keeps the message in the outbox
 printf 'AC\n' > "$DTMP/state/power-state"
 batt; touch "$DTMP/hermes-fail"; : > "$DTMP/hermes-log"; : > "$DTMP/state/outbox.txt"
 run_once 2
-if [ -s "$DTMP/state/outbox.txt" ]; then d_ok "сбой отправки: сообщение остаётся в outbox"; else d_bad "сбой отправки: сообщение потеряно"; fi
+if [ -s "$DTMP/state/outbox.txt" ]; then d_ok "failed send: the message stays in the outbox"; else d_bad "failed send: the message was lost"; fi
 
 # successful send drains the outbox
-rm -f "$DTMP/hermes-fail"; printf 'тестовое сообщение\n' > "$DTMP/state/outbox.txt"
+rm -f "$DTMP/hermes-fail"; printf 'test message\n' > "$DTMP/state/outbox.txt"
 printf 'AC\n' > "$DTMP/state/power-state"; ac; : > "$DTMP/hermes-log"
 run_once
-if [ ! -s "$DTMP/state/outbox.txt" ] && grep -q "тестовое сообщение" "$DTMP/hermes-log"; then
-  d_ok "успешная отправка: очередь опустошается"
+if [ ! -s "$DTMP/state/outbox.txt" ] && grep -q "test message" "$DTMP/hermes-log"; then
+  d_ok "successful send: the queue is drained"
 else
-  d_bad "успешная отправка: outbox=$(cat "$DTMP/state/outbox.txt" 2>/dev/null) log=$(cat "$DTMP/hermes-log" 2>/dev/null | tr '\n' ' ')"
+  d_bad "successful send: outbox=$(cat "$DTMP/state/outbox.txt" 2>/dev/null) log=$(cat "$DTMP/hermes-log" 2>/dev/null | tr '\n' ' ')"
 fi
 
 total=22

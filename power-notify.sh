@@ -37,8 +37,8 @@ compose() { # state pct
   local state="$1" pct="${2:-?}" host
   host="$(hostname -s 2>/dev/null || echo mac)"
   case "$state" in
-    BATT) printf '🔌 Питание отключено — %s работает от батареи (%s%%).' "$host" "$pct" ;;
-    AC)   printf '⚡ Питание восстановлено — %s снова на зарядке (%s%%).' "$host" "$pct" ;;
+    BATT) printf '🔌 Power lost — %s is running on battery (%s%%).' "$host" "$pct" ;;
+    AC)   printf '⚡ Power restored — %s is charging again (%s%%).' "$host" "$pct" ;;
   esac
 }
 
@@ -65,7 +65,7 @@ esac
 # No baked-in default on purpose: a hardcoded chat id would ship the maintainer's
 # Telegram id to everyone who clones this repo.
 if [ -z "$TARGET" ] && [ "$DRY" != 1 ]; then
-  echo "power-notify: POWERNOTIFY_TARGET is not set (format: telegram:ЧИСЛО)." >&2
+  echo "power-notify: POWERNOTIFY_TARGET is not set (format: telegram:NUMBER)." >&2
   echo "  discover it with: hermes send --list telegram" >&2
   exit 2
 fi

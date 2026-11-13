@@ -80,7 +80,7 @@ require_root() {
   # root cannot READ a script under ~/Documents (TCC) — stage it in a private /tmp dir first
   case "$self" in
     "$REAL_HOME"/Documents/*|"$REAL_HOME"/Desktop/*|"$REAL_HOME"/Downloads/*)
-      dir="$(mktemp -d -t macwake.XXXXXX)" || die "не смог создать временный каталог"
+      dir="$(mktemp -d -t macwake.XXXXXX)" || die "could not create a temp dir"
       cp "$self" "$dir/macwake.sh" && self="$dir/macwake.sh" ;;
   esac
   if [ "${#ORIG_ARGS[@]}" -gt 0 ]; then
@@ -134,7 +134,7 @@ cancel_probes() { # remove every queued probe event, past and future
     fi
     n=$((n + 1))
   done < <(pmset -g sched 2>/dev/null)
-  say "снято событий проб: $n"
+  say "probe events removed: $n"
 }
 
 # --- plists -------------------------------------------------------------------
@@ -244,13 +244,13 @@ probes_report() {
   n="$(queued_probes)"
   step="$(plist_env "$PROBE_PLIST" WAKEPROBE_STEP_MIN)"
   want="$(plist_env "$PROBE_PLIST" WAKEPROBE_WANT)"
-  say "демон:    ${st:-не запущен}${pid:+ (pid $pid)}"
-  say "в очереди: $n из ${want:-?} проб, шаг ${step:-?} мин (0 = выключено)"
+  say "daemon:   ${st:-not running}${pid:+ (pid $pid)}"
+  say "queued:   $n of ${want:-?} probes, step ${step:-?} min (0 = off)"
 }
 
 probes_on() {
   require_root
-  [ -f "$PROBE_PLIST" ] || is_dry || die "нет $PROBE_PLIST — сначала 'macwake install'"
+  [ -f "$PROBE_PLIST" ] || is_dry || die "no $PROBE_PLIST — run 'macwake install' first"
   actq launchctl bootout "system/$LABEL_PROBE"
   act launchctl enable "system/$LABEL_PROBE"
   act launchctl bootstrap system "$PROBE_PLIST"
@@ -279,22 +279,22 @@ hold_report() {
   st="$(job_state "gui/$REAL_UID/$LABEL_HOLD")"
   pid="$(job_pid "gui/$REAL_UID/$LABEL_HOLD")"
   who="$(sleep_holders)"
-  say "агент:    ${st:-не запущен}${pid:+ (pid $pid)}"
+  say "agent:    ${st:-not running}${pid:+ (pid $pid)}"
   if holder_holding; then
-    say "держит:   да — caffeinate держит PreventSystemSleep (только на AC)"
+    say "holding:  yes — caffeinate holds PreventSystemSleep (on AC only)"
   else
-    say "держит:   нет — мак засыпает по idle"
+    say "holding:  no — the Mac will idle-sleep"
   fi
   say "sleep:    $(sleep_line)"
   case "$who" in
-    *Vorssaint*) say "внимание:  Vorssaint тоже держит PreventUserIdleSystemSleep — два держателя это лишнее" ;;
+    *Vorssaint*) say "warning:  Vorssaint also holds PreventUserIdleSystemSleep — two holders is one too many" ;;
   esac
 }
 
 hold_on() {
   mkdir -p "$(dirname "$HOLD_PLIST")" "$REAL_HOME/Library/Logs"
   write_hold_plist "$HOLD_PLIST"
-  is_dry || plutil -lint "$HOLD_PLIST" >/dev/null || die "plist не прошёл lint: $HOLD_PLIST"
+  is_dry || plutil -lint "$HOLD_PLIST" >/dev/null || die "plist failed lint: $HOLD_PLIST"
   actq launchctl bootout "gui/$REAL_UID/$LABEL_HOLD"
   act launchctl enable "gui/$REAL_UID/$LABEL_HOLD"
   act launchctl bootstrap "gui/$REAL_UID" "$HOLD_PLIST"
@@ -306,7 +306,7 @@ hold_off() {
   actq launchctl bootout "gui/$REAL_UID/$LABEL_HOLD"
   act launchctl disable "gui/$REAL_UID/$LABEL_HOLD"
   hold_report
-  say "пробы не тронуты: $(queued_probes) событий в очереди"
+  say "probes untouched: $(queued_probes) events queued"
 }
 
 # --- notify agent -------------------------------------------------------------
@@ -315,21 +315,21 @@ notify_report() {
   local st pid
   st="$(job_state "gui/$REAL_UID/$LABEL_NOTIFY")"
   pid="$(job_pid "gui/$REAL_UID/$LABEL_NOTIFY")"
-  say "агент:    ${st:-не запущен}${pid:+ (pid $pid)}"
-  say "цель:     $(plist_env "$NOTIFY_PLIST" POWERNOTIFY_TARGET)"
+  say "agent:    ${st:-not running}${pid:+ (pid $pid)}"
+  say "target:   $(plist_env "$NOTIFY_PLIST" POWERNOTIFY_TARGET)"
 }
 
 notify_on() { # $1 = optional new target; a given target rewrites the plist
   local target="${1:-}" interval debounce
-  [ -x "$NOTIFY_BIN" ] || is_dry || die "нет $NOTIFY_BIN — сначала 'macwake install' (или install с --notify)"
+  [ -x "$NOTIFY_BIN" ] || is_dry || die "no $NOTIFY_BIN — run 'macwake install' first (or install with --notify)"
   [ -z "$target" ] && target="$(plist_env "$NOTIFY_PLIST" POWERNOTIFY_TARGET)"
-  [ -n "$target" ] || die "нужна цель: macwake notify on --target telegram:ЧИСЛО"
+  [ -n "$target" ] || die "a target is required: macwake notify on --target telegram:NUMBER"
   interval="$(plist_env "$NOTIFY_PLIST" POWERNOTIFY_INTERVAL)"; interval="${interval:-30}"
   debounce="$(plist_env "$NOTIFY_PLIST" POWERNOTIFY_DEBOUNCE)"; debounce="${debounce:-2}"
   if [ -n "${1:-}" ] || [ ! -f "$NOTIFY_PLIST" ]; then
     mkdir -p "$(dirname "$NOTIFY_PLIST")"
     write_notify_plist "$target" "$interval" "$debounce" "$NOTIFY_PLIST"
-    is_dry || plutil -lint "$NOTIFY_PLIST" >/dev/null || die "plist не прошёл lint: $NOTIFY_PLIST"
+    is_dry || plutil -lint "$NOTIFY_PLIST" >/dev/null || die "plist failed lint: $NOTIFY_PLIST"
   fi
   actq launchctl bootout "gui/$REAL_UID/$LABEL_NOTIFY"
   act launchctl enable "gui/$REAL_UID/$LABEL_NOTIFY"
@@ -351,7 +351,7 @@ run_tests() {
   for t in test_plan.sh test_notify.sh test_cli.sh; do
     [ -x "$SELF_DIR/$t" ] || continue
     say "== $t =="
-    "$SELF_DIR/$t" || die "$t провалился — установка остановлена"
+    "$SELF_DIR/$t" || die "$t failed — install stopped"
   done
 }
 
@@ -365,19 +365,19 @@ install_root() { # $1 = step, $2 = want ; runs as root, only the system half
     return 0
   fi
   [ -f "$src" ] || { [ -x "$PROBE_BIN" ] && src="$PROBE_BIN"; }
-  [ -f "$src" ] || die "нет исходника wakeprobe.sh — запусти 'macwake install' из каталога проекта"
-  plist="$(mktemp /tmp/${LABEL_PROBE}.XXXXXX)" || die "не смог создать временный plist"
+  [ -f "$src" ] || die "no wakeprobe.sh source — run 'macwake install' from the project dir"
+  plist="$(mktemp /tmp/${LABEL_PROBE}.XXXXXX)" || die "could not create a temp plist"
   write_probe_plist "$step" "$want" "$plist"
-  plutil -lint "$plist" >/dev/null || die "plist не прошёл lint"
+  plutil -lint "$plist" >/dev/null || die "plist failed lint"
   mkdir -p /usr/local/bin
-  install -o root -g wheel -m 755 "$src" "$PROBE_BIN" || die "не удалось установить $PROBE_BIN"
-  install -o root -g wheel -m 644 "$plist" "$PROBE_PLIST" || die "не удалось установить $PROBE_PLIST"
+  install -o root -g wheel -m 755 "$src" "$PROBE_BIN" || die "failed to install $PROBE_BIN"
+  install -o root -g wheel -m 644 "$plist" "$PROBE_PLIST" || die "failed to install $PROBE_PLIST"
   rm -f "$plist"
   launchctl bootout "system/$LABEL_PROBE" 2>/dev/null || true
   launchctl enable "system/$LABEL_PROBE"
-  launchctl bootstrap system "$PROBE_PLIST" || die "bootstrap system/$LABEL_PROBE не удался"
+  launchctl bootstrap system "$PROBE_PLIST" || die "bootstrap system/$LABEL_PROBE failed"
   sleep 5
-  say "== пробы =="
+  say "== probes =="
   probes_report
 }
 
@@ -386,24 +386,24 @@ cmd_install() {
   local root_phase=0 skip_tests=0 stage
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --notify)     target="${2:-}"; shift 2 || die "нужно значение для --notify" ;;
+      --notify)     target="${2:-}"; shift 2 || die "missing value for --notify" ;;
       --notify=*)   target="${1#*=}"; shift ;;
       --no-notify)  do_notify=0; shift ;;
-      --holder)     holder="${2:-}"; shift 2 || die "нужно значение для --holder" ;;
+      --holder)     holder="${2:-}"; shift 2 || die "missing value for --holder" ;;
       --holder=*)   holder="${1#*=}"; shift ;;
-      --step)       step="${2:-}"; shift 2 || die "нужно значение для --step" ;;
-      --want)       want="${2:-}"; shift 2 || die "нужно значение для --want" ;;
+      --step)       step="${2:-}"; shift 2 || die "missing value for --step" ;;
+      --want)       want="${2:-}"; shift 2 || die "missing value for --want" ;;
       --root-phase) root_phase=1; shift ;;
       --no-test)    skip_tests=1; shift ;;
-      *) die "install: неизвестный аргумент '$1'" ;;
+      *) die "install: unknown argument '$1'" ;;
     esac
   done
   case "$holder" in caffeinate|none) ;; *) die "--holder: caffeinate|none" ;; esac
-  case "$step$want" in *[!0-9]*|"") die "--step/--want: целые числа" ;; esac
-  [ "$step" -ge 1 ] && [ "$want" -ge 1 ] || die "--step/--want должны быть >= 1"
+  case "$step$want" in *[!0-9]*|"") die "--step/--want: integers only" ;; esac
+  [ "$step" -ge 1 ] && [ "$want" -ge 1 ] || die "--step/--want must be >= 1"
 
   if [ "$root_phase" = "1" ]; then
-    [ "$(id -u)" -eq 0 ] || die "--root-phase только под sudo"
+    [ "$(id -u)" -eq 0 ] || die "--root-phase is sudo-only"
     install_root "$step" "$want"
     return
   fi
@@ -413,36 +413,36 @@ cmd_install() {
   # user half: notify agent + holder agent, no sudo needed
   if [ "$do_notify" = "1" ]; then
     [ -n "$target" ] || target="$(plist_env "$NOTIFY_PLIST" POWERNOTIFY_TARGET)"
-    [ -n "$target" ] || die "нужна цель для уведомлений: --notify telegram:ЧИСЛО (или --no-notify).
-  список: hermes send --list telegram"
-    [ -f "$SELF_DIR/power-notify.sh" ] || [ -x "$NOTIFY_BIN" ] || die "нет power-notify.sh"
+    [ -n "$target" ] || die "a notification target is required: --notify telegram:NUMBER (or --no-notify).
+  list: hermes send --list telegram"
+    [ -f "$SELF_DIR/power-notify.sh" ] || [ -x "$NOTIFY_BIN" ] || die "no power-notify.sh"
     mkdir -p "$(dirname "$NOTIFY_BIN")" "$REAL_HOME/Library/Logs" "$STATE_DIR"
     if [ -f "$SELF_DIR/power-notify.sh" ]; then
       act install -m 755 "$SELF_DIR/power-notify.sh" "$NOTIFY_BIN"
     fi
-    say "== уведомлятор =="
+    say "== notifier =="
     notify_on "$target"
   else
     if [ -f "$NOTIFY_PLIST" ]; then
       actq launchctl bootout "gui/$REAL_UID/$LABEL_NOTIFY"
       actq launchctl disable "gui/$REAL_UID/$LABEL_NOTIFY"
       actq rm -f "$NOTIFY_PLIST" "$NOTIFY_BIN"
-      say "== уведомлятор: снят (--no-notify) =="
+      say "== notifier: removed (--no-notify) =="
     else
-      say "== уведомлятор: пропущен (--no-notify) =="
+      say "== notifier: skipped (--no-notify) =="
     fi
   fi
 
   case "$holder" in
-    caffeinate) say "== держатель (caffeinate -s) =="; hold_on ;;
+    caffeinate) say "== holder (caffeinate -s) =="; hold_on ;;
     none)
       if [ -f "$HOLD_PLIST" ]; then
         actq launchctl bootout "gui/$REAL_UID/$LABEL_HOLD"
         actq launchctl disable "gui/$REAL_UID/$LABEL_HOLD"
         actq rm -f "$HOLD_PLIST"
-        say "== держатель: снят (--holder none) =="
+        say "== holder: removed (--holder none) =="
       else
-        say "== держатель: пропущен (--holder none) =="
+        say "== holder: skipped (--holder none) =="
       fi ;;
   esac
 
@@ -454,18 +454,18 @@ cmd_install() {
 
   # system half: one sudo for the root daemon
   if [ "$(id -u)" -ne 0 ] && ! is_dry; then
-    stage="$(mktemp -d -t macwake.XXXXXX)" || die "не смог создать временный каталог"
-    cp "$SELF" "$stage/macwake.sh" || die "не смог подготовить $stage/macwake.sh"
+    stage="$(mktemp -d -t macwake.XXXXXX)" || die "could not create a temp dir"
+    cp "$SELF" "$stage/macwake.sh" || die "could not prepare $stage/macwake.sh"
     # the daemon itself: repo copy if we run from the project, else the installed one
     if [ -f "$SELF_DIR/wakeprobe.sh" ]; then
-      cp "$SELF_DIR/wakeprobe.sh" "$stage/wakeprobe.sh" || die "не смог подготовить $stage/wakeprobe.sh"
+      cp "$SELF_DIR/wakeprobe.sh" "$stage/wakeprobe.sh" || die "could not prepare $stage/wakeprobe.sh"
     elif [ ! -x "$PROBE_BIN" ]; then
-      die "нет ни $SELF_DIR/wakeprobe.sh, ни $PROBE_BIN — запусти install из каталога проекта"
+      die "neither $SELF_DIR/wakeprobe.sh nor $PROBE_BIN exists — run install from the project dir"
     fi
-    say "== пробы (sudo) =="
+    say "== probes (sudo) =="
     exec sudo /bin/bash "$stage/macwake.sh" install --root-phase --step "$step" --want "$want"
   fi
-  say "== пробы =="
+  say "== probes =="
   install_root "$step" "$want"
 }
 
@@ -475,43 +475,43 @@ cmd_uninstall() {
     case "$1" in
       --purge)      purge=1; shift ;;
       --root-phase) root_phase=1; shift ;;
-      *) die "uninstall: неизвестный аргумент '$1'" ;;
+      *) die "uninstall: unknown argument '$1'" ;;
     esac
   done
 
   if [ "$root_phase" = "1" ]; then
-    [ "$(id -u)" -eq 0 ] || die "--root-phase только под sudo"
+    [ "$(id -u)" -eq 0 ] || die "--root-phase is sudo-only"
     launchctl bootout "system/$LABEL_PROBE" 2>/dev/null || true
     launchctl disable "system/$LABEL_PROBE" 2>/dev/null || true
     cancel_probes
     rm -f "$PROBE_PLIST" "$PROBE_BIN"
     [ "$purge" = "1" ] && rm -f "$PROBE_LOG" "$PROBE_ERR"
-    say "удалено: $PROBE_PLIST, $PROBE_BIN"
+    say "removed: $PROBE_PLIST, $PROBE_BIN"
     return
   fi
 
-  say "== держатель =="
+  say "== holder =="
   actq launchctl bootout "gui/$REAL_UID/$LABEL_HOLD"
   actq launchctl disable "gui/$REAL_UID/$LABEL_HOLD"
   actq rm -f "$HOLD_PLIST"
-  say "снят держатель и $HOLD_PLIST"
+  say "holder removed, $HOLD_PLIST"
 
-  say "== уведомлятор =="
+  say "== notifier =="
   actq launchctl bootout "gui/$REAL_UID/$LABEL_NOTIFY"
   actq launchctl disable "gui/$REAL_UID/$LABEL_NOTIFY"
   actq rm -f "$NOTIFY_PLIST" "$NOTIFY_BIN"
-  say "сняты уведомления: $NOTIFY_PLIST, $NOTIFY_BIN"
+  say "notifier removed: $NOTIFY_PLIST, $NOTIFY_BIN"
 
   if [ "$purge" = "1" ]; then
     actq rm -rf "$STATE_DIR"
     actq rm -f "$NOTIFY_LOG" "$NOTIFY_ERR" "$HOLD_LOG"
-    say "снимаю состояние и логи: $STATE_DIR, ~/Library/Logs/mac-wakeup-*"
+    say "removing state and logs: $STATE_DIR, ~/Library/Logs/mac-wakeup-*"
   fi
 
-  say "== пробы (sudo) =="
+  say "== probes (sudo) =="
   if [ "$(id -u)" -ne 0 ] && ! is_dry; then
-    stage="$(mktemp -d -t macwake.XXXXXX)" || die "не смог создать временный каталог"
-    cp "$SELF" "$stage/macwake.sh" || die "не смог подготовить $stage/macwake.sh"
+    stage="$(mktemp -d -t macwake.XXXXXX)" || die "could not create a temp dir"
+    cp "$SELF" "$stage/macwake.sh" || die "could not prepare $stage/macwake.sh"
     if [ "$purge" = "1" ]; then
       sudo /bin/bash "$stage/macwake.sh" uninstall --root-phase --purge
     else
@@ -526,7 +526,7 @@ cmd_uninstall() {
   fi
 
   actq rm -f "$SELF_INSTALL"
-  say "готово: цепочка снята (Vorssaint и настройки pmset не тронуты)"
+  say "done: the chain is removed (Vorssaint and pmset settings untouched)"
 }
 
 # --- status -------------------------------------------------------------------
@@ -542,58 +542,58 @@ cmd_status() {
 
   say "macwake $VERSION — user $REAL_USER, home $REAL_HOME"
   say ""
-  say "пробы:    ${st:-не запущен}${pid:+ (pid $pid)}$disabled, в очереди $n из ${want:-?} (шаг ${step:-?} мин)"
+  say "probes:   ${st:-not running}${pid:+ (pid $pid)}$disabled, queued $n of ${want:-?} (step ${step:-?} min)"
   if [ -z "$st" ] || [ "$n" -eq 0 ]; then
-    say "          → macwake enable  (поднять и зарядить очередь)"
+    say "          -> macwake enable  (boot it and fill the queue)"
   fi
 
   hold_st="$(job_state "gui/$REAL_UID/$LABEL_HOLD")"
   hold_pid="$(job_pid "gui/$REAL_UID/$LABEL_HOLD")"
   if holder_holding; then
-    say "держатель: caffeinate держит PreventSystemSleep${hold_pid:+ (pid $hold_pid)} — на AC мак не уснёт"
+    say "holder:   caffeinate holds PreventSystemSleep${hold_pid:+ (pid $hold_pid)} — on AC the Mac will not sleep"
   else
-    say "держатель: ${hold_st:-не запущен}${hold_pid:+ (pid $hold_pid)}, но сон не держится"
-    say "          → macwake hold on    (на AC держать мак включённым)"
+    say "holder:   ${hold_st:-not running}${hold_pid:+ (pid $hold_pid)}, but sleep is not held"
+    say "          -> macwake hold on    (keep the Mac awake on AC)"
   fi
 
   nst="$(job_state "gui/$REAL_UID/$LABEL_NOTIFY")"
   npid="$(job_pid "gui/$REAL_UID/$LABEL_NOTIFY")"
   if job_disabled "gui/$REAL_UID" "$LABEL_NOTIFY"; then
-    say "уведомл.: disabled"
+    say "notify:   disabled"
   else
-    say "уведомл.: ${nst:-не запущен}${npid:+ (pid $npid)}"
+    say "notify:   ${nst:-not running}${npid:+ (pid $npid)}"
   fi
 
   say ""
-  say "питание:  $(power_now)"
-  say "батарея:  $(battery_line)"
+  say "power:    $(power_now)"
+  say "battery:  $(battery_line)"
   say "sleep:    $(sleep_line)"
-  say "держат:   $(sleep_holders)"
+  say "holders:  $(sleep_holders)"
 }
 
 # --- help / dispatch ----------------------------------------------------------
 
 usage() {
   cat <<'EOF'
-macwake — цепочка «мак просыпается сам, когда возвращается питание»
+macwake — the chain that wakes the Mac by itself when power comes back
 
-  macwake status                      что включено прямо сейчас
-  macwake install [ключи]             поставить всё: пробы + держатель + уведомления
-  macwake uninstall [--purge]         снять всё (--purge: ещё логи и состояние)
-  macwake enable                      включить пробы пробуждения
-  macwake disable [--all]             выключить пробы (--all: ещё держатель и уведомления)
-  macwake hold on|off|status          держатель «не спать на AC» (caffeinate -s)
-  macwake notify on|off [--target T]  уведомления в Telegram о питании
+  macwake status                      what is on right now
+  macwake install [options]           install everything: probes + holder + notifications
+  macwake uninstall [--purge]         remove everything (--purge: logs and state too)
+  macwake enable                      turn the wake probes on
+  macwake disable [--all]             turn the probes off (--all: holder and notifications too)
+  macwake hold on|off|status          the "stay awake on AC" holder (caffeinate -s)
+  macwake notify on|off [--target T]  Telegram notifications about power
 
 install:
-  --notify telegram:ЧИСЛО   цель уведомлений (hermes send --list telegram)
-  --no-notify               без уведомлений
-  --holder caffeinate|none  держатель (по умолчанию caffeinate)
-  --step N                  интервал проб, минут (12)
-  --want N                  сколько проб держать в очереди (3)
+  --notify telegram:NUMBER  notification target (hermes send --list telegram)
+  --no-notify               no notifications
+  --holder caffeinate|none  holder (caffeinate by default)
+  --step N                  probe interval, minutes (12)
+  --want N                  how many probes to keep queued (3)
 
-Пробы и держатель независимы: disable не трогает держатель, hold off не трогает пробы.
-MACWAKE_DRY=1 macwake <команда> — показать команды, ничего не меняя.
+Probes and holder are independent: disable does not touch the holder, hold off does not touch probes.
+MACWAKE_DRY=1 macwake <command> — print the commands without changing anything.
 EOF
 }
 
@@ -610,12 +610,12 @@ main() {
       while [ "$#" -gt 0 ]; do
         case "$1" in
           --all) all=1; shift ;;
-          *) die "disable: неизвестный аргумент '$1'" ;;
+          *) die "disable: unknown argument '$1'" ;;
         esac
       done
       probes_off
       if [ "$all" = "1" ]; then
-        say "== --all: снимаю держатель и уведомления =="
+        say "== --all: removing holder and notifier =="
         hold_off
         notify_off
       fi
@@ -635,9 +635,9 @@ main() {
           local t=""
           while [ "$#" -gt 0 ]; do
             case "$1" in
-              --target) t="${2:-}"; shift 2 || die "нужно значение для --target" ;;
+              --target) t="${2:-}"; shift 2 || die "missing value for --target" ;;
               --target=*) t="${1#*=}"; shift ;;
-              *) die "notify on: неизвестный аргумент '$1'" ;;
+              *) die "notify on: unknown argument '$1'" ;;
             esac
           done
           notify_on "$t"
@@ -649,7 +649,7 @@ main() {
       ;;
     version|--version|-v) say "macwake $VERSION" ;;
     help|--help|-h) usage ;;
-    *) usage; die "неизвестная команда: $cmd" ;;
+    *) usage; die "unknown command: $cmd" ;;
   esac
 }
 

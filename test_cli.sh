@@ -18,13 +18,13 @@ fails=0
 ok()  { echo "ok   $*"; }
 bad() { echo "FAIL $*"; fails=$((fails + 1)); }
 has() {
-  case "$1" in *"$2"*) ok "$3" ;; *) bad "$3 (не найдено: $2)" ;; esac
+  case "$1" in *"$2"*) ok "$3" ;; *) bad "$3 (not found: $2)" ;; esac
 }
 hasnt() {
-  case "$1" in *"$2"*) bad "$3 (лишнее: $2)" ;; *) ok "$3" ;; esac
+  case "$1" in *"$2"*) bad "$3 (unexpected: $2)" ;; *) ok "$3" ;; esac
 }
 count_of() { printf '%s\n' "$1" | grep -c -- "$2"; }
-eq() { if [ "$1" = "$2" ]; then ok "$3"; else bad "$3 (получено '$1', ждали '$2')"; fi; }
+eq() { if [ "$1" = "$2" ]; then ok "$3"; else bad "$3 (got '$1', want '$2')"; fi; }
 
 TMP="$(mktemp -d -t macwake-test)"
 trap 'rm -rf "$TMP"' EXIT
@@ -75,20 +75,22 @@ dry() { # runs the CLI in dry-run with stubbed pmset
 }
 
 # --- interface ---------------------------------------------------------------
-out="$("$CLI" version 2>&1)"; has "$out" "macwake 1.0.0" "version печатает версию"
-out="$("$CLI" help 2>&1)";   has "$out" "macwake hold on|off|status" "help печатает команды"
-"$CLI" nonsense >/dev/null 2>&1; eq "$?" "1" "неизвестная команда → exit 1"
-dry install --holder bogus >/dev/null 2>&1; eq "$?" "1" "install --holder bogus → exit 1"
-dry install --step x >/dev/null 2>&1; eq "$?" "1" "install --step x → exit 1"
+out="$("$CLI" version 2>&1)"; has "$out" "macwake 1.0.0" "version prints the version"
+out="$("$CLI" help 2>&1)";   has "$out" "macwake hold on|off|status" "help prints the commands"
+"$CLI" nonsense >/dev/null 2>&1; eq "$?" "1" "unknown command -> exit 1"
+dry install --holder bogus >/dev/null 2>&1; eq "$?" "1" "install --holder bogus -> exit 1"
+dry install --step x >/dev/null 2>&1; eq "$?" "1" "install --step x -> exit 1"
+dry install --step >/dev/null 2>&1; eq "$?" "1" "install --step with no value -> exit 1 (no hang)"
+dry notify on --target >/dev/null 2>&1; eq "$?" "1" "notify --target with no value -> exit 1 (no hang)"
 
 # --- status parsing against stubs -------------------------------------------
 out="$(stub_run status)"
-has "$out" "пробы:    running (pid 4242)" "status: пробы running"
-has "$out" "в очереди 3 из" "status: очередь из фикстуры = 3"
-has "$out" "держатель: caffeinate держит PreventSystemSleep (pid 4343)" "status: caffeinate держит"
-has "$out" "уведомл.: running (pid 4444)" "status: уведомлятор running"
-has "$out" "питание:  Now drawing from 'AC Power'" "status: источник питания"
-has "$out" "Vorssaint" "status: видит второго держателя"
+has "$out" "probes:   running (pid 4242)" "status: probes running"
+has "$out" "queued 3 of" "status: queue from the fixture = 3"
+has "$out" "holder:   caffeinate holds PreventSystemSleep (pid 4343)" "status: caffeinate holds"
+has "$out" "notify:   running (pid 4444)" "status: notifier running"
+has "$out" "power:    Now drawing from 'AC Power'" "status: power source"
+has "$out" "Vorssaint" "status: sees the second holder"
 
 # same check, but with a pmset whose output dwarfs the pipe buffer: an early `grep -q`
 # would SIGPIPE it and (with `pipefail`) report "no holder" on a Mac that has one.
@@ -106,66 +108,66 @@ esac
 EOF
 chmod +x "$TMP/stubs_big/pmset"
 out="$(TEST_FIXTURES="$FIX" PATH="$TMP/stubs_big:$PATH" "$CLI" hold status 2>&1)"
-has "$out" "держит:   да" "hold status: большой вывод pmset не превращает держателя в «нет»"
+has "$out" "holding:  yes" "hold status: large pmset output does not turn the holder into 'no'"
 
 # --- probes on/off never touch the holder ------------------------------------
 out="$(dry disable)"
-has "$out" "would: launchctl bootout system/local.hermes.wakeprobe" "disable: снимает демон"
-has "$out" "would: launchctl disable system/local.hermes.wakeprobe" "disable: выключает автозапуск"
-eq "$(count_of "$out" 'would: pmset schedule cancel wake')" "3" "disable: снимает все 3 события"
-hasnt "$out" "gui/" "disable: не трогает держатель/уведомления"
+has "$out" "would: launchctl bootout system/local.hermes.wakeprobe" "disable: boots the daemon out"
+has "$out" "would: launchctl disable system/local.hermes.wakeprobe" "disable: turns autostart off"
+eq "$(count_of "$out" 'would: pmset schedule cancel wake')" "3" "disable: removes all 3 events"
+hasnt "$out" "gui/" "disable: does not touch holder/notifier"
 
 out="$(dry enable)"
-has "$out" "would: launchctl enable system/local.hermes.wakeprobe" "enable: включает автозапуск"
-has "$out" "would: launchctl bootstrap system /Library/LaunchDaemons/local.hermes.wakeprobe.plist" "enable: поднимает демон"
-hasnt "$out" "gui/" "enable: не трогает держатель/уведомления"
+has "$out" "would: launchctl enable system/local.hermes.wakeprobe" "enable: turns autostart on"
+has "$out" "would: launchctl bootstrap system /Library/LaunchDaemons/local.hermes.wakeprobe.plist" "enable: boots the daemon"
+hasnt "$out" "gui/" "enable: does not touch holder/notifier"
 
 out="$(dry disable --all)"
-has "$out" "would: launchctl bootout gui/" "disable --all: снимает держатель"
-has "$out" "local.mac-wakeup.notify" "disable --all: снимает уведомлятор"
+has "$out" "would: launchctl bootout gui/" "disable --all: removes the holder"
+has "$out" "local.mac-wakeup.notify" "disable --all: removes the notifier"
 
 # --- holder on/off never touches the probes ---------------------------------
 out="$(dry hold on)"
-has "$out" "would: write plist" "hold on: пишет plist"
-has "$out" "(caffeinate -s)" "hold on: держатель = caffeinate -s"
-has "$out" "would: launchctl bootstrap gui/" "hold on: поднимает агент"
-hasnt "$out" "system/" "hold on: пробы не тронуты"
+has "$out" "would: write plist" "hold on: writes the plist"
+has "$out" "(caffeinate -s)" "hold on: holder = caffeinate -s"
+has "$out" "would: launchctl bootstrap gui/" "hold on: boots the agent"
+hasnt "$out" "system/" "hold on: probes untouched"
 
 out="$(dry hold off)"
-has "$out" "would: launchctl bootout gui/" "hold off: снимает агент"
-has "$out" "would: launchctl disable gui/" "hold off: автозапуск выключен"
-hasnt "$out" "system/" "hold off: пробы не тронуты"
-has "$out" "пробы не тронуты: 3" "hold off: сообщает, что пробы не тронуты"
+has "$out" "would: launchctl bootout gui/" "hold off: removes the agent"
+has "$out" "would: launchctl disable gui/" "hold off: autostart off"
+hasnt "$out" "system/" "hold off: probes untouched"
+has "$out" "probes untouched: 3" "hold off: reports that probes are untouched"
 
 out="$(dry notify off)"
-has "$out" "local.mac-wakeup.notify" "notify off: снимает уведомлятор"
-hasnt "$out" "system/" "notify off: пробы не тронуты"
+has "$out" "local.mac-wakeup.notify" "notify off: removes the notifier"
+hasnt "$out" "system/" "notify off: probes untouched"
 
 # notify on --target must actually change the target (regression: it used to no-op)
 out="$(dry notify on --target telegram:777)"
-has "$out" "would: write plist $HOME/Library/LaunchAgents/local.mac-wakeup.notify.plist (target=telegram:777" "notify on --target переписывает plist с новой целью"
+has "$out" "would: write plist $HOME/Library/LaunchAgents/local.mac-wakeup.notify.plist (target=telegram:777" "notify on --target rewrites the plist with the new target"
 
 # --- install ----------------------------------------------------------------
 out="$(dry install --no-test --notify telegram:12345)"
-has "$out" "would: write plist $HOME/Library/LaunchAgents/local.mac-wakeup.notify.plist (target=telegram:12345" "install: plist уведомлятора с целью"
-has "$out" "would: write plist $HOME/Library/LaunchAgents/local.mac-wakeup.hold.plist (caffeinate -s)" "install: plist держателя"
-has "$out" ".local/bin/macwake" "install: ставит сам CLI в ~/.local/bin"
-has "$out" "would: write plist /Library/LaunchDaemons/local.hermes.wakeprobe.plist (step=12 want=3)" "install: plist демона по умолчанию"
-has "$out" "would: launchctl bootstrap system /Library/LaunchDaemons/local.hermes.wakeprobe.plist" "install: поднимает демон"
+has "$out" "would: write plist $HOME/Library/LaunchAgents/local.mac-wakeup.notify.plist (target=telegram:12345" "install: notifier plist with the target"
+has "$out" "would: write plist $HOME/Library/LaunchAgents/local.mac-wakeup.hold.plist (caffeinate -s)" "install: holder plist"
+has "$out" ".local/bin/macwake" "install: puts the CLI itself in ~/.local/bin"
+has "$out" "would: write plist /Library/LaunchDaemons/local.hermes.wakeprobe.plist (step=12 want=3)" "install: default daemon plist"
+has "$out" "would: launchctl bootstrap system /Library/LaunchDaemons/local.hermes.wakeprobe.plist" "install: boots the daemon"
 
 out="$(dry install --no-test --no-notify --holder none --step 7 --want 2)"
-has "$out" "would: write plist /Library/LaunchDaemons/local.hermes.wakeprobe.plist (step=7 want=2)" "install: --step/--want доезжают до plist"
-hasnt "$out" "would: write plist $HOME/Library/LaunchAgents/local.mac-wakeup.notify.plist" "install --no-notify: не пишет plist уведомлятора"
-hasnt "$out" "would: write plist $HOME/Library/LaunchAgents/local.mac-wakeup.hold.plist" "install --holder none: не пишет plist держателя"
+has "$out" "would: write plist /Library/LaunchDaemons/local.hermes.wakeprobe.plist (step=7 want=2)" "install: --step/--want reach the plist"
+hasnt "$out" "would: write plist $HOME/Library/LaunchAgents/local.mac-wakeup.notify.plist" "install --no-notify: does not write the notifier plist"
+hasnt "$out" "would: write plist $HOME/Library/LaunchAgents/local.mac-wakeup.hold.plist" "install --holder none: does not write the holder plist"
 
 # --- uninstall --------------------------------------------------------------
 out="$(dry uninstall)"
-has "$out" "would: rm -f $HOME/Library/LaunchAgents/local.mac-wakeup.hold.plist" "uninstall: убирает plist держателя"
-has "$out" "would: rm -f $HOME/Library/LaunchAgents/local.mac-wakeup.notify.plist" "uninstall: убирает plist уведомлятора"
-has "$out" "would: launchctl disable system/local.hermes.wakeprobe" "uninstall: гасит демон"
-eq "$(count_of "$out" 'would: pmset schedule cancel wake')" "3" "uninstall: снимает события проб"
-has "$out" "would: rm -f /Library/LaunchDaemons/local.hermes.wakeprobe.plist" "uninstall: убирает plist демона"
+has "$out" "would: rm -f $HOME/Library/LaunchAgents/local.mac-wakeup.hold.plist" "uninstall: removes the holder plist"
+has "$out" "would: rm -f $HOME/Library/LaunchAgents/local.mac-wakeup.notify.plist" "uninstall: removes the notifier plist"
+has "$out" "would: launchctl disable system/local.hermes.wakeprobe" "uninstall: shuts the daemon down"
+eq "$(count_of "$out" 'would: pmset schedule cancel wake')" "3" "uninstall: removes the probe events"
+has "$out" "would: rm -f /Library/LaunchDaemons/local.hermes.wakeprobe.plist" "uninstall: removes the daemon plist"
 
 echo
-if [ "$fails" -eq 0 ]; then echo "PASS (все проверки macwake)"; exit 0; fi
-echo "FAIL: $fails проверок"; exit 1
+if [ "$fails" -eq 0 ]; then echo "PASS (all macwake checks)"; exit 0; fi
+echo "FAIL: $fails checks"; exit 1
